@@ -14,13 +14,15 @@ unlock_all = switch, false, tag = 解锁所有关卡, desc = 开启后将解锁�
 instant_clear = switch, false, tag = 直接通关, desc = 开启后进入关卡直接通关
 
 [Rewrite]
-# 伪装 config 请求头，帮助绕过服务端的地域判断
-^https://ios-api-2\.duolingo\.cn/2023-05-23/config url request-header "X-Forwarded-For" replace "8.8.8.8"
-^https://ios-api-2\.duolingo\.cn/2023-05-23/config url request-header "Accept-Language" replace "en-US,en;q=0.9"
+# 删除 batch / users 请求的 If-None-Match，强制服务端返回完整响应体。
+# 否则 etag 304 会让脚本拿不到 body，App 继续用本地缓存的免费用户数据，Max 永远不生效。
+request if ${url} ~= /^https?:\/\/(ios-api-[a-z0-9-]+|api\d+)\.duolingo\.c(n|om)\/2023-05-23\/(batch|users\/[^\/?#]+)/i then request.header.del("If-None-Match")
 
 [Script]
 # 会员伪装 / 去广告（config、batch、users、available-features、messaging、subscription-catalog、plus-promotions）
-response if ${url} ~= /^https?:\/\/(ios-api-[a-z0-9-]+|api\d+)\.duolingo\.c(n|om)\/(2023-05-23\/(config|batch|users\/[^\/?#]+|messaging\/get-messages|subscription-catalog)|.*plus-promotions)/i then script("https://raw.githubusercontent.com/TuiYinMJ/myScript/refs/heads/master/js/lingoDuo-xaM-enhanced.js", {${xp_boost}, ${multiplier}, ${unlock_all}}) with tag="解锁Max/去广告", timeout=120, requires_body=true
+# users/<id> 用 (?:[?#]|$) 锚定：只匹配用户主对象和 available-features / subscription-catalog 子路径，
+# 不再误拦 energy-rewards、xp_summaries 等子路径
+response if ${url} ~= /^https?:\/\/(ios-api-[a-z0-9-]+|api\d+)\.duolingo\.c(n|om)\/(2023-05-23\/(config|batch|messaging\/get-messages|users\/[^\/?#]+(?:\/(?:available-features|subscription-catalog))?(?:[?#]|$)|subscription-catalog(?:[?#]|$))|.*plus-promotions)/i then script("https://raw.githubusercontent.com/TuiYinMJ/myScript/refs/heads/master/js/lingoDuo-xaM-enhanced.js", {${xp_boost}, ${multiplier}, ${unlock_all}}) with tag="解锁Max/去广告", timeout=120, requires_body=true
 
 # 限时挑战时长修改（不变）
 response if ${url} ~= /^https?:\/\/(?:ios-api-[a-z0-9-]+|api\d+)\.duolingo\.c(?:n|om)\/.*\/live-ops-challenges/i then script("https://raw.githubusercontent.com/TuiYinMJ/myScript/refs/heads/master/js/lingoDuo-time-modifier.js", {${timer_mins}}) with enable=${timer_switch}, tag="限时挑战时长修改", timeout=120, requires_body=true

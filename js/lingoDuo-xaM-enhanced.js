@@ -2,7 +2,7 @@
  * Duolingo Max 解锁 增强版
  *
  * 处理接口：
- *   /2023-05-23/config                     区域伪装、视频通话开关、广告开关
+ *   /2023-05-23/config                     视频通话开关、广告开关
  *   /2023-05-23/batch                      用户数据（subscriberLevel / shopItems / 体力 / 能量 / 订阅）
  *   /2023-05-23/users/<id>                 用户数据（含 ?fields=subscriberLevel）
  *   /2023-05-23/users/<id>/available-features  会员权益列表
@@ -10,6 +10,11 @@
  *   /2023-05-23/users/<id>/subscription-catalog  透传（advertisableFeatures 即权益清单来源）
  *   /plus-promotions/*                     插屏视频广告 / 促销决策
  *   midas-bandits-prod/fetch_decisions    加载屏促销、家庭计划文案等 bandit 决策
+ *
+ * 会员伪装采用服务端真实存在的形态（抓包与原版脚本验证）：
+ *   - subscriberLevel = 'GOLD'，shopItems 用 gold_subscription（24Q2Max 产品 = Max 档位）
+ *   - Max 档位由 hasMax + trackingProperties.has_item_gold_subscription_plus 标记
+ *   - 不使用虚构的 'MAX' / max_subscription / super_subscription（客户端不识别会回退免费）
  *
  * MAX_FEATURES 取自抓包里 subscription-catalog 的 advertisableFeatures：
  * ["NO_NETWORK_ADS","UNLIMITED_HEARTS","LEGENDARY_LEVEL","MISTAKES_INBOX","MASTERY_QUIZ",
@@ -73,16 +78,15 @@ try {
         return;
     }
 
-    // ============ 3. config：区域伪装 + 视频通话 + 广告开关 ============
+    // ============ 3. config：视频通话 + 广告开关 ============
     if (url.includes('/2023-05-23/config')) {
         let configBody = JSON.parse($response.body);
 
         if (configBody.featureFlags) {
             const ff = configBody.featureFlags;
-            // 视频通话 tab 不被强制禁用
+            // 视频通话 tab 不被强制禁用（config 实际下发的两个真实 flag）
             ff.ios_video_call_tab_should_force_unavailable_state = false;
             ff.ios_video_call_public_testing_indicator_china = true;
-            ff.ios_video_call_tab_enabled = true;
             ff.ios_vc_sherpa_eligible_countries = "US,CN,SG,JP,KR,TW,HK,MO,BR,IN,MX,ID,AR,CO,PE,VE,CL,EC,BO,GT,PH,DO,PY,VN,CU,CR,SV,HN,UY,PR,PA,NI,HT,TH,MY,TL,FM,MP,AS,PW,PK,BD,RE,SX,AX,IO,BV,TK,UM,SH,NU,TF,HM,GS,PN,AG,CW,JE,VC,SJ,BS,GM,BA,CD,CG,CI,CZ,FK,KN,MK,MM,PM,ST,TC,TT,VI,SZ,BQ,NF,VA,AN,NG,RU,IR,TR,EG,KE,UA,ZA,SA,MA,DZ,IQ,TZ,AF,ET,UG,UZ,GH,KZ,SD,ML,AE,ZM,SN,AO,JO,SY,ZW,TN,AZ,NP,YE,CM,BY,MZ,RS,RW,LY,LB,BF,KW,OM,BJ,PS,NE,GE,KG,MD,QA,TJ,MG,LK,MW,GN,TD,AL,AM,SO,BH,XK,BI,JM,TM,GA,NA,BW,KH,SL,TG,MR,MU,SS,LR,LS,PG,CF,DJ,LA,ME,MN,GY,GQ,CV,SR,MQ,GW,ER,GP,FJ,BB,BT,BZ,KM,SB,LC,MV,BN,GF,PF,YT,AW,NC,AD,SC,GD,BM,VU,GG,KY,IM,GL,WS,DM,FO,GU,MC,LI,GI,KI,EH,TO,SM,KP,MF,VG,MH,AI,CK,BL,NR,TV,WF,MS,AQ,CX,CC";
             ff.ios_should_reduce_experiment_requests = 0.0;
 
@@ -146,64 +150,53 @@ try {
     const applyMax = (userdata) => {
         if (!userdata) return;
 
-        // ---- 6.1 订阅层级全面伪装 ----
-        userdata.subscriberLevel = 'MAX';
+        // ---- 6.1 订阅层级伪装 ----
+        // subscriberLevel 用 'GOLD'（原版脚本已验证可行）；Max 档位靠 hasMax +
+        // gold_subscription(24Q2Max 产品) + has_item_gold_subscription_plus 共同标记。
+        // 不再使用 'MAX' / max_subscription / super_subscription——这些 id 服务端
+        // 从不下发，客户端校验失败会回退成免费用户，导致 Max 身份不生效。
+        userdata.subscriberLevel = 'GOLD';
         userdata.hasPlus = true;
-        userdata.has_plus = true;
-        userdata.isPlus = true;
-        userdata.isSuper = true;
-        userdata.isMax = true;
+        userdata.hasMax = true;
 
-        // ---- 6.2 shopItems 添加 max_subscription 和 super_subscription ----
+        // ---- 6.2 shopItems：续期真实的 gold_subscription（Max 档位产品） ----
         if (!userdata.shopItems) userdata.shopItems = [];
-        userdata.shopItems = userdata.shopItems.filter(item => item.id !== 'gold_subscription');
+        // 清理此前版本注入的虚构条目
+        userdata.shopItems = userdata.shopItems.filter(item =>
+            item.id !== 'max_subscription' && item.id !== 'super_subscription');
 
-        let hasMax = userdata.shopItems.some(item => item.id === 'max_subscription');
-        if (!hasMax) {
+        let gold = userdata.shopItems.find(item => item.id === 'gold_subscription');
+        if (gold) {
+            // 已有（含已过期）：续期
+            if (gold.subscriptionInfo) {
+                gold.subscriptionInfo.expectedExpiration = now + 31536000;
+                gold.subscriptionInfo.renewing = true;
+            }
+            gold.purchaseDate = (typeof gold.purchaseDate === 'number') ? gold.purchaseDate : now - 172800;
+        } else {
             userdata.shopItems.push({
-                id: 'max_subscription',
+                id: 'gold_subscription',
                 purchaseDate: now - 172800,
                 purchasePrice: 0,
                 subscriptionInfo: {
                     expectedExpiration: now + 31536000,
-                    productId: "com.duolingo.DuolingoMobile.subscription.Max.TwelveMonth.24Q2Max.168",
-                    renewer: 'APPLE', renewing: true, tier: 'twelve_month', type: 'max'
+                    productId: "com.duolingo.DuolingoMobile.subscription.Gold.TwelveMonth.24Q2Max.168",
+                    renewer: 'APPLE', renewing: true, tier: 'twelve_month', type: 'gold'
                 }
             });
         }
 
-        let hasSuper = userdata.shopItems.some(item => item.id === 'super_subscription');
-        if (!hasSuper) {
-            userdata.shopItems.push({
-                id: 'super_subscription',
-                purchaseDate: now - 172800,
-                purchasePrice: 0,
-                subscriptionInfo: {
-                    expectedExpiration: now + 31536000,
-                    productId: "com.duolingo.DuolingoMobile.subscription.Super.TwelveMonth.24Q2Max.168",
-                    renewer: 'APPLE', renewing: true, tier: 'twelve_month', type: 'super'
-                }
-            });
-        }
-
-        // ---- 6.3 trackingProperties 全开 ----
+        // ---- 6.3 trackingProperties 全开（含 Max 专属标记） ----
         if (!userdata.trackingProperties) userdata.trackingProperties = {};
         [
             "has_item_immersive_subscription", "has_item_premium_subscription",
             "has_item_live_subscription", "has_item_gold_subscription",
-            "has_item_max_subscription", "has_item_super_subscription",
-            "has_item_plus_subscription"
+            "has_item_gold_subscription_plus", "has_item_max_subscription"
         ].forEach(p => userdata.trackingProperties[p] = true);
         userdata.trackingProperties.no_network_ads = true;
         userdata.trackingProperties.unlimited_hearts = true;
 
-        // ---- 6.4 subscription 对象增强 ----
-        if (!userdata.subscription) userdata.subscription = {};
-        userdata.subscription.level = 'MAX';
-        userdata.subscription.type = 'max';
-        userdata.subscription.isActive = true;
-
-        // ---- 6.5 无限体力 / 无限能量 ----
+        // ---- 6.4 无限体力 / 无限能量 ----
         if (userdata.health) {
             userdata.health.unlimitedHeartsAvailable = true;
             userdata.health.useHealth = false;
@@ -231,19 +224,27 @@ try {
         if (userdata.pushFamilyPlanNudge !== undefined) userdata.pushFamilyPlanNudge = false;
         if (userdata.pushPromotion !== undefined) userdata.pushPromotion = false;
 
-        // ---- 6.7 订阅记录：客户端可能据此判断订阅是否有效 ----
-        userdata.subscriptionConfigs = [{
-            vendorPurchaseId: 'MAX_UNLOCK_LOCAL',
-            isInBillingRetryPeriod: false,
-            isInGracePeriod: false,
-            pauseStart: null,
-            pauseEnd: null,
-            productId: "com.duolingo.DuolingoMobile.subscription.Max.TwelveMonth.24Q2Max.168",
-            receiptSource: 1,
-            expirationTimestamp: (now + 31536000) * 1000,
-            isFreeTrialPeriod: false,
-            itemType: 'max_subscription'
-        }];
+        // ---- 6.7 订阅记录：续期真实条目（itemType 用服务端真实值 gold_subscription） ----
+        if (Array.isArray(userdata.subscriptionConfigs) && userdata.subscriptionConfigs.length) {
+            // 更新已有的（含已过期）订阅记录，保留服务端下发的真实字段
+            userdata.subscriptionConfigs.forEach(cfg => {
+                if (cfg.itemType === 'max_subscription' || cfg.itemType === 'super_subscription') {
+                    cfg.itemType = 'gold_subscription';
+                }
+                cfg.expirationTimestamp = (now + 31536000) * 1000;
+                cfg.isInBillingRetryPeriod = false;
+                cfg.isInGracePeriod = false;
+            });
+        } else if (userdata.subscriptionConfigs !== undefined) {
+            userdata.subscriptionConfigs = [{
+                isInBillingRetryPeriod: false,
+                isInGracePeriod: false,
+                productId: "com.duolingo.DuolingoMobile.subscription.Gold.TwelveMonth.24Q2Max.168",
+                expirationTimestamp: (now + 31536000) * 1000,
+                isFreeTrialPeriod: false,
+                itemType: 'gold_subscription'
+            }];
+        }
 
         // ---- 6.8 经验加倍（保留原有逻辑） ----
         if (args.xp_boost) {
@@ -301,6 +302,13 @@ try {
                 applyMax(b);
                 r.body = JSON.stringify(b);
                 changed = true;
+                // 删除该子响应的 etag：否则 App 下次带 If-None-Match 请求，
+                // 服务端 304 返回空 body，脚本无物可改，App 继续用缓存
+                if (r.headers) {
+                    delete r.headers.etag;
+                    delete r.headers.Etag;
+                    delete r.headers.ETag;
+                }
             }
         });
         if (changed) { done(obj); return; }
