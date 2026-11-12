@@ -1,0 +1,3 @@
+[Script]
+# 边界猎手 SVIP 解锁
+http-response ^https://litebhapi\.belugabh\.com/(center-bh-pro-biz-core/svip/getUserVipMessage|center-bh-pro-biz-core/svip/getSVipPicture|center-bh-pro-biz-core/svip/personalCenterMy|personal_center/user_equity_status_list) script-path=https://raw.githubusercontent.com/TuiYinMJ/myScript/refs/heads/master/js/beluga-svip.js, requires-body=true, timeout=60, tag=边界SVIP
