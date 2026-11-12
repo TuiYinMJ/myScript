@@ -1,3 +1,11 @@
+#!name = 边界猎手 SVIP 解锁
+#!desc = 修改 litebhapi.belugabh.com 会员相关接口响应
+#!author = TuiYinMJ
+#!homepage = https://github.com/TuiYinMJ/myScript
+#!loon_version = 3.5.1(983)
+
 [Script]
-# 边界猎手 SVIP 解锁
-http-response ^https://litebhapi\.belugabh\.com/(center-bh-pro-biz-core/svip/getUserVipMessage|center-bh-pro-biz-core/svip/getSVipPicture|center-bh-pro-biz-core/svip/personalCenterMy|personal_center/user_equity_status_list) script-path=https://raw.githubusercontent.com/TuiYinMJ/myScript/refs/heads/master/js/beluga-svip.js, requires-body=true, timeout=60, tag=边界SVIP
+response if ${url} ~= /^https:\/\/litebhapi\.belugabh\.com\/(center-bh-pro-biz-core\/svip\/(getUserVipMessage|getSVipPicture|personalCenterMy)|personal_center\/user_equity_status_list|center-bh-pro-biz-core\/map\/bh\/dsqRangeNum)/i then script("https://raw.githubusercontent.com/TuiYinMJ/myScript/refs/heads/master/js/beluga-svip.js") with tag="边界SVIP", timeout=60, requires_body=true
+
+[MITM]
+hostname = litebhapi.belugabh.com
