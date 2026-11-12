@@ -1,5 +1,5 @@
 #!name = Duolingo Max 解锁 增强版
-#!desc = Duolingo iOS 版解锁 Max 会员，实现无限体力、去除广告、解锁视频通话等，支持经验加倍和自定义限时挑战时长
+#!desc = Duolingo iOS 版解锁 Max 会员：完整权益列表、无限体力/能量、去插屏广告与促销弹窗，支持经验加倍和自定义限时挑战时长
 #!author = R0kernel
 #!homepage = https://github.com/TuiYinMJ/myScript/tree/master
 #!icon = https://github.com/TuiYinMJ/myScript/blob/master/res/lingoDuo.png?raw=true
@@ -19,8 +19,8 @@ instant_clear = switch, false, tag = 直接通关, desc = 开启后进入关卡�
 ^https://ios-api-2\.duolingo\.cn/2023-05-23/config url request-header "Accept-Language" replace "en-US,en;q=0.9"
 
 [Script]
-# 视频通话解锁 & 会员伪装（统一处理 config / batch / users / messaging / subscription-catalog）
-response if ${url} ~= /^https?:\/\/(ios-api-[a-z0-9-]+|api\d+)\.duolingo\.c(n|om)\/2023-05-23\/(config|batch|users\/[^\/?#]+|messaging\/get-messages|subscription-catalog)/i then script("https://raw.githubusercontent.com/TuiYinMJ/myScript/refs/heads/master/js/lingoDuo-xaM-enhanced.js", {${xp_boost}, ${multiplier}, ${unlock_all}}) with tag="解锁Max", timeout=120, requires_body=true
+# 会员伪装 / 去广告（config、batch、users、available-features、messaging、subscription-catalog、plus-promotions）
+response if ${url} ~= /^https?:\/\/(ios-api-[a-z0-9-]+|api\d+)\.duolingo\.c(n|om)\/(2023-05-23\/(config|batch|users\/[^\/?#]+|messaging\/get-messages|subscription-catalog)|.*plus-promotions)/i then script("https://raw.githubusercontent.com/TuiYinMJ/myScript/refs/heads/master/js/lingoDuo-xaM-enhanced.js", {${xp_boost}, ${multiplier}, ${unlock_all}}) with tag="解锁Max/去广告", timeout=120, requires_body=true
 
 # 限时挑战时长修改（不变）
 response if ${url} ~= /^https?:\/\/(?:ios-api-[a-z0-9-]+|api\d+)\.duolingo\.c(?:n|om)\/.*\/live-ops-challenges/i then script("https://raw.githubusercontent.com/TuiYinMJ/myScript/refs/heads/master/js/lingoDuo-time-modifier.js", {${timer_mins}}) with enable=${timer_switch}, tag="限时挑战时长修改", timeout=120, requires_body=true
@@ -28,5 +28,8 @@ response if ${url} ~= /^https?:\/\/(?:ios-api-[a-z0-9-]+|api\d+)\.duolingo\.c(?:
 # 直接通关（不变）
 response if ${url} ~= /^https?:\/\/(?:ios-api-[a-z0-9-]+|api\d+|stories)\.duolingo\.c(?:n|om)\/(?:.*\/sessions|api2\/stories)/i then script("https://raw.githubusercontent.com/TuiYinMJ/myScript/refs/heads/master/js/lingoDuo-clear.js") with enable=${instant_clear}, tag="直接通关(部分关卡)", timeout=120, requires_body=true
 
+# 加载屏促销 / Super 家庭计划等 bandit 决策（返回空数组即不再展示）
+response if ${url} ~= /^https?:\/\/midas-bandits-prod\.duolingo\.cn\/fetch_decisions/i then script("https://raw.githubusercontent.com/TuiYinMJ/myScript/refs/heads/master/js/lingoDuo-xaM-enhanced.js") with tag="Duolingo去促销", timeout=120, requires_body=true
+
 [MITM]
-hostname = ios-api-*.duolingo.com, ios-api-*.duolingo.cn, api*.duolingo.com, api*.duolingo.cn, stories.duolingo.com, stories.duolingo.cn
+hostname = *.duolingo.com, *.duolingo.cn

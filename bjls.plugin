@@ -5,7 +5,7 @@
 #!loon_version = 3.5.1(983)
 
 [Script]
-response if ${url} ~= /^https:\/\/litebhapi\.belugabh\.com\/(center-bh-pro-biz-core\/svip\/(getUserVipMessage|getSVipPicture|personalCenterMy)|personal_center\/user_equity_status_list|center-bh-pro-biz-core\/map\/bh\/dsqRangeNum)/i then script("https://raw.githubusercontent.com/TuiYinMJ/myScript/refs/heads/master/js/beluga-svip.js") with tag="边界SVIP", timeout=60, requires_body=true
+response if ${url} ~= /^https:\/\/litebhapi\.belugabh\.com\/+(center-bh-pro-biz-core\/svip\/(getUserVipMessage|getSVipPicture|personalCenterMy)|personal_center\/user_equity_status_list|center-bh-pro-biz-core\/map\/bh\/dsqRangeNum|center-bh-pro-poi-core\/data\/dataMapSearchNum|center-bh-pro-biz-core\/ad\/(selectData|sdKqhx)|center-bh-pro-manage-core\/ads\/getAvailableQuestionnaire|center-bh-pro-biz-core\/activity\/(selectPopNewPeopleList|indexActivity)|center-bh-pro-user-core\/dataUpdateRecord\/todayPageNotice|center-bh-pro-manage-core\/goldenEntry\/appList|center-bh-pro-biz-core\/wallet\/getPortraitGoodsByUserLevel)/i then script("https://raw.githubusercontent.com/TuiYinMJ/myScript/refs/heads/master/js/beluga-svip.js") with tag="边界SVIP", timeout=60, requires_body=true
 
 [MITM]
 hostname = litebhapi.belugabh.com

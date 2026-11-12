@@ -1,48 +1,114 @@
+/*
+ * Duolingo Max 解锁 增强版
+ *
+ * 处理接口：
+ *   /2023-05-23/config                     区域伪装、视频通话开关、广告开关
+ *   /2023-05-23/batch                      用户数据（subscriberLevel / shopItems / 体力 / 能量 / 订阅）
+ *   /2023-05-23/users/<id>                 用户数据（含 ?fields=subscriberLevel）
+ *   /2023-05-23/users/<id>/available-features  会员权益列表
+ *   /2023-05-23/messaging/get-messages     Super/Max 引导消息过滤
+ *   /2023-05-23/users/<id>/subscription-catalog  透传（advertisableFeatures 即权益清单来源）
+ *   /plus-promotions/*                     插屏视频广告 / 促销决策
+ *   midas-bandits-prod/fetch_decisions    加载屏促销、家庭计划文案等 bandit 决策
+ *
+ * MAX_FEATURES 取自抓包里 subscription-catalog 的 advertisableFeatures：
+ * ["NO_NETWORK_ADS","UNLIMITED_HEARTS","LEGENDARY_LEVEL","MISTAKES_INBOX","MASTERY_QUIZ",
+ *  "NO_SUPER_PROMOS","LICENSED_SONGS","CHAT_TUTORS","EXPLAIN_MY_ANSWER",
+ *  "VIDEO_CALL_IN_PATH","VIDEO_CALL_IN_PRACTICE_HUB"]
+ */
+
+const MAX_FEATURES = [
+    "NO_NETWORK_ADS", "UNLIMITED_HEARTS", "LEGENDARY_LEVEL", "MISTAKES_INBOX",
+    "MASTERY_QUIZ", "NO_SUPER_PROMOS", "LICENSED_SONGS", "CHAT_TUTORS",
+    "EXPLAIN_MY_ANSWER", "VIDEO_CALL_IN_PATH", "VIDEO_CALL_IN_PRACTICE_HUB"
+];
+
+// 统一输出：删掉 Content-Length / Content-Encoding，避免 body 改写后变长被截断
+const done = (obj) => {
+    const bodyStr = JSON.stringify(obj);
+    const raw = $response.headers;
+    if (raw && Object.keys(raw).length) {
+        const headers = Object.assign({}, raw);
+        Object.keys(headers).forEach(k => {
+            const lk = k.toLowerCase();
+            if (lk === 'content-length' || lk === 'content-encoding') delete headers[k];
+        });
+        $done({ body: bodyStr, headers: headers });
+    } else {
+        $done({ body: bodyStr });
+    }
+};
+const keep = () => $done({});
+
 try {
     const url = $request.url;
     const now = Math.floor(Date.now() / 1000);
     const args = (typeof $argument !== 'undefined' && $argument) ? $argument : {};
 
-    // ==================== 1. config 接口：强制开放视频通话 + 伪装区域 ====================
+    // ============ 0. bandit 促销决策 ============
+    // 返回空数组，不再展示加载屏促销 / Super 家庭计划文案
+    if (url.includes('/fetch_decisions')) {
+        done([]);
+        return;
+    }
+
+    // ============ 1. 插屏视频广告 / 促销决策 ============
+    if (url.includes('/plus-promotions/')) {
+        let o = JSON.parse($response.body);
+        if (o.decisions) o.decisions = {};
+        if (Array.isArray(o.promotions)) o.promotions = [];
+        if (Array.isArray(o.treatedExperiments)) o.treatedExperiments = [];
+        if (o.features) o.features = {};
+        done(o);
+        return;
+    }
+
+    // ============ 2. available-features：补全会员权益 ============
+    // 免费版实际只返回 ["EXPLAIN_MY_ANSWER_FOR_ENERGY_COST"]
+    if (url.includes('/available-features')) {
+        let o = JSON.parse($response.body);
+        o.subscriptionFeatures = MAX_FEATURES.slice();
+        // purchasableFeatures 保持原样，避免破坏内购流程
+        done(o);
+        return;
+    }
+
+    // ============ 3. config：区域伪装 + 视频通话 + 广告开关 ============
     if (url.includes('/2023-05-23/config')) {
         let configBody = JSON.parse($response.body);
 
         if (configBody.featureFlags) {
+            const ff = configBody.featureFlags;
             // 视频通话 tab 不被强制禁用
-            configBody.featureFlags.ios_video_call_tab_should_force_unavailable_state = false;
-            // 中国区测试标识
-            configBody.featureFlags.ios_video_call_public_testing_indicator_china = true;
-            // 尝试开启视频通话 tab（部分版本可能用这个 key）
-            configBody.featureFlags.ios_video_call_tab_enabled = true;
-            // 扩展视频通话可用国家列表，确保包含 US/CN/SG 等
-            configBody.featureFlags.ios_vc_sherpa_eligible_countries = "US,CN,SG,JP,KR,TW,HK,MO,BR,IN,MX,ID,AR,CO,PE,VE,CL,EC,BO,GT,PH,DO,PY,VN,CU,CR,SV,HN,UY,PR,PA,NI,HT,TH,MY,MO,TL,FM,MP,AS,PW,PK,BD,RE,SX,AX,IO,BV,TK,UM,SH,NU,TF,HM,GS,PN,AG,CW,JE,VC,SJ,BS,GM,BA,CD,CG,CI,CZ,FK,KN,MK,MM,PM,ST,TC,TT,VI,SZ,BQ,NF,VA,AN,NG,RU,IR,TR,EG,KE,UA,ZA,SA,MA,DZ,IQ,TZ,AF,ET,UG,UZ,GH,KZ,SD,ML,AE,ZM,SN,AO,JO,SY,ZW,TN,AZ,NP,YE,CM,BY,MZ,RS,RW,LY,LB,BF,KW,OM,BJ,PS,NE,GE,KG,MD,QA,TJ,MG,LK,MW,GN,TD,AL,AM,SO,BH,XK,BI,JM,TM,GA,NA,BW,KH,SL,TG,MR,MU,SS,LR,LS,PG,CF,DJ,LA,ME,MN,GY,GQ,CV,SR,MQ,GW,ER,GP,FJ,BB,BT,BZ,KM,SB,LC,MV,BN,GF,PF,YT,AW,NC,AD,SC,GD,BM,VU,GG,KY,IM,GL,WS,DM,FO,GU,MC,LI,GI,KI,EH,TO,SM,KP,MF,VG,MH,AI,CK,BL,NR,TV,WF,MS,AQ,CX,CC";
-            // 减少实验请求，避免客户端频繁校验
-            configBody.featureFlags.ios_should_reduce_experiment_requests = 0.0;
+            ff.ios_video_call_tab_should_force_unavailable_state = false;
+            ff.ios_video_call_public_testing_indicator_china = true;
+            ff.ios_video_call_tab_enabled = true;
+            ff.ios_vc_sherpa_eligible_countries = "US,CN,SG,JP,KR,TW,HK,MO,BR,IN,MX,ID,AR,CO,PE,VE,CL,EC,BO,GT,PH,DO,PY,VN,CU,CR,SV,HN,UY,PR,PA,NI,HT,TH,MY,TL,FM,MP,AS,PW,PK,BD,RE,SX,AX,IO,BV,TK,UM,SH,NU,TF,HM,GS,PN,AG,CW,JE,VC,SJ,BS,GM,BA,CD,CG,CI,CZ,FK,KN,MK,MM,PM,ST,TC,TT,VI,SZ,BQ,NF,VA,AN,NG,RU,IR,TR,EG,KE,UA,ZA,SA,MA,DZ,IQ,TZ,AF,ET,UG,UZ,GH,KZ,SD,ML,AE,ZM,SN,AO,JO,SY,ZW,TN,AZ,NP,YE,CM,BY,MZ,RS,RW,LY,LB,BF,KW,OM,BJ,PS,NE,GE,KG,MD,QA,TJ,MG,LK,MW,GN,TD,AL,AM,SO,BH,XK,BI,JM,TM,GA,NA,BW,KH,SL,TG,MR,MU,SS,LR,LS,PG,CF,DJ,LA,ME,MN,GY,GQ,CV,SR,MQ,GW,ER,GP,FJ,BB,BT,BZ,KM,SB,LC,MV,BN,GF,PF,YT,AW,NC,AD,SC,GD,BM,VU,GG,KY,IM,GL,WS,DM,FO,GU,MC,LI,GI,KI,EH,TO,SM,KP,MF,VG,MH,AI,CK,BL,NR,TV,WF,MS,AQ,CX,CC";
+            ff.ios_should_reduce_experiment_requests = 0.0;
+
+            // 广告相关开关（仅在服务端确实下发该 flag 时改写）
+            if ('ios_literacy_ad_rollout' in ff) ff.ios_literacy_ad_rollout = 0.0;
+            if ('ios_allow_streak_ext_client_rendered_ads_prefetch' in ff) ff.ios_allow_streak_ext_client_rendered_ads_prefetch = false;
+            if ('ios_ads_instream_custom_skip_offset_seconds' in ff) ff.ios_ads_instream_custom_skip_offset_seconds = 0;
+            if ('ios_ads_instream_custom_skip_threshold_seconds' in ff) ff.ios_ads_instream_custom_skip_threshold_seconds = 0;
         }
 
-        // 伪装区域为美国
         configBody.ipCountry = "US";
         if (configBody.countryCode !== undefined) configBody.countryCode = "US";
-
-        $done({ body: JSON.stringify(configBody) });
+        done(configBody);
         return;
     }
 
-    // ==================== 2. messaging 接口：过滤 Super/Max 引导消息 ====================
+    // ============ 4. messaging：过滤 Super/Max 引导消息 ============
     if (url.includes('/2023-05-23/messaging/get-messages')) {
         let msgBody = JSON.parse($response.body);
         if (msgBody.messageDisplayInfo && Array.isArray(msgBody.messageDisplayInfo)) {
             const blockList = [
-                'promoCodeSuperOnboarding',
-                'promoCodeSuperOffboarding',
-                'superFamilyPlanInvite',
-                'superFamilyPlanDirectAdd',
-                'maxFamilyPlanUpgradeNudge',
-                'immersivePlusPromo',
-                'familyPlanPromo',
-                'newYearsCrossgradeDiscount',
-                'plusBottomSheetFamilyFollowUp',
-                'appOpenMaxCrossgradeDiscountHook',
+                'promoCodeSuperOnboarding', 'promoCodeSuperOffboarding',
+                'superFamilyPlanInvite', 'superFamilyPlanDirectAdd',
+                'maxFamilyPlanUpgradeNudge', 'immersivePlusPromo',
+                'familyPlanPromo', 'newYearsCrossgradeDiscount',
+                'plusBottomSheetFamilyFollowUp', 'appOpenMaxCrossgradeDiscountHook',
                 'maxIndividualToSuperFamilyMigration'
             ];
             msgBody.messageDisplayInfo = msgBody.messageDisplayInfo.filter(item => {
@@ -54,26 +120,33 @@ try {
                 return true;
             });
         }
-        $done({ body: JSON.stringify(msgBody) });
+        done(msgBody);
         return;
     }
 
-    // ==================== 3. subscription-catalog 接口：透传（可选增强） ====================
+    // ============ 5. subscription-catalog：透传 ============
+    // 该接口不下发时会破坏购买流程，保持原样；MAX_FEATURES 即来自它的 advertisableFeatures
     if (url.includes('/subscription-catalog')) {
-        let catalogBody = JSON.parse($response.body);
-        // 如果客户端用这个接口判断订阅，可以确保套餐列表包含 Max
-        // 目前先原样返回，避免破坏购买流程
-        $done({ body: JSON.stringify(catalogBody) });
+        keep();
         return;
     }
 
-    // ==================== 4. 用户数据 / batch 接口：全面伪装 MAX 会员 ====================
+    // ============ 6. 用户数据 / batch ============
+    // 只解析含用户数据的接口，跳过 sdui-shop(1.3MB) 等大响应
+    const path = url.split('?')[0];
+    const isBatch = path.endsWith('/2023-05-23/batch');
+    const isUser = /\/2023-05-23\/users\/\d+$/.test(path);
+    if (!isBatch && !isUser) {
+        keep();
+        return;
+    }
+
     const obj = JSON.parse($response.body);
 
     const applyMax = (userdata) => {
         if (!userdata) return;
 
-        // ---- 4.1 订阅层级全面伪装 ----
+        // ---- 6.1 订阅层级全面伪装 ----
         userdata.subscriberLevel = 'MAX';
         userdata.hasPlus = true;
         userdata.has_plus = true;
@@ -81,13 +154,10 @@ try {
         userdata.isSuper = true;
         userdata.isMax = true;
 
-        // ---- 4.2 shopItems 添加 max_subscription 和 super_subscription ----
+        // ---- 6.2 shopItems 添加 max_subscription 和 super_subscription ----
         if (!userdata.shopItems) userdata.shopItems = [];
-
-        // 移除旧的 gold_subscription，避免冲突
         userdata.shopItems = userdata.shopItems.filter(item => item.id !== 'gold_subscription');
 
-        // 添加 max_subscription
         let hasMax = userdata.shopItems.some(item => item.id === 'max_subscription');
         if (!hasMax) {
             userdata.shopItems.push({
@@ -97,15 +167,11 @@ try {
                 subscriptionInfo: {
                     expectedExpiration: now + 31536000,
                     productId: "com.duolingo.DuolingoMobile.subscription.Max.TwelveMonth.24Q2Max.168",
-                    renewer: 'APPLE',
-                    renewing: true,
-                    tier: 'twelve_month',
-                    type: 'max'
+                    renewer: 'APPLE', renewing: true, tier: 'twelve_month', type: 'max'
                 }
             });
         }
 
-        // 添加 super_subscription 作为后备（视频通话可能下放到 Super）
         let hasSuper = userdata.shopItems.some(item => item.id === 'super_subscription');
         if (!hasSuper) {
             userdata.shopItems.push({
@@ -115,33 +181,71 @@ try {
                 subscriptionInfo: {
                     expectedExpiration: now + 31536000,
                     productId: "com.duolingo.DuolingoMobile.subscription.Super.TwelveMonth.24Q2Max.168",
-                    renewer: 'APPLE',
-                    renewing: true,
-                    tier: 'twelve_month',
-                    type: 'super'
+                    renewer: 'APPLE', renewing: true, tier: 'twelve_month', type: 'super'
                 }
             });
         }
 
-        // ---- 4.3 trackingProperties 全开 ----
+        // ---- 6.3 trackingProperties 全开 ----
         if (!userdata.trackingProperties) userdata.trackingProperties = {};
         [
-            "has_item_immersive_subscription",
-            "has_item_premium_subscription",
-            "has_item_live_subscription",
-            "has_item_gold_subscription",
-            "has_item_max_subscription",
-            "has_item_super_subscription",
+            "has_item_immersive_subscription", "has_item_premium_subscription",
+            "has_item_live_subscription", "has_item_gold_subscription",
+            "has_item_max_subscription", "has_item_super_subscription",
             "has_item_plus_subscription"
         ].forEach(p => userdata.trackingProperties[p] = true);
+        userdata.trackingProperties.no_network_ads = true;
+        userdata.trackingProperties.unlimited_hearts = true;
 
-        // ---- 4.4 subscription 对象增强 ----
+        // ---- 6.4 subscription 对象增强 ----
         if (!userdata.subscription) userdata.subscription = {};
         userdata.subscription.level = 'MAX';
         userdata.subscription.type = 'max';
         userdata.subscription.isActive = true;
 
-        // ---- 4.5 经验加倍（保留原有逻辑） ----
+        // ---- 6.5 无限体力 / 无限能量 ----
+        if (userdata.health) {
+            userdata.health.unlimitedHeartsAvailable = true;
+            userdata.health.useHealth = false;
+            userdata.health.hearts = 999;
+            userdata.health.maxHearts = 999;
+            userdata.health.secondsPerHeartSegment = 0;
+            userdata.health.secondsUntilNextHeartSegment = null;
+        }
+        if (userdata.energyConfig) {
+            userdata.energyConfig.energy = 999;
+            userdata.energyConfig.maxEnergy = 999;
+            userdata.energyConfig.baseMaxEnergy = 999;
+            userdata.energyConfig.secondsPerEnergyUnit = 0;
+            userdata.energyConfig.secondsUntilNextEnergyUnit = 0;
+        }
+
+        // ---- 6.6 去广告 / 促销 ----
+        if (userdata.adsConfig) {
+            userdata.adsConfig.allowPersonalizedAds = false;
+            userdata.adsConfig.units = {};
+        }
+        userdata.literacyAdGroup = null;
+        userdata.adRequestAgeGroup = null;
+        userdata.plusDiscounts = [];
+        if (userdata.pushFamilyPlanNudge !== undefined) userdata.pushFamilyPlanNudge = false;
+        if (userdata.pushPromotion !== undefined) userdata.pushPromotion = false;
+
+        // ---- 6.7 订阅记录：客户端可能据此判断订阅是否有效 ----
+        userdata.subscriptionConfigs = [{
+            vendorPurchaseId: 'MAX_UNLOCK_LOCAL',
+            isInBillingRetryPeriod: false,
+            isInGracePeriod: false,
+            pauseStart: null,
+            pauseEnd: null,
+            productId: "com.duolingo.DuolingoMobile.subscription.Max.TwelveMonth.24Q2Max.168",
+            receiptSource: 1,
+            expirationTimestamp: (now + 31536000) * 1000,
+            isFreeTrialPeriod: false,
+            itemType: 'max_subscription'
+        }];
+
+        // ---- 6.8 经验加倍（保留原有逻辑） ----
         if (args.xp_boost) {
             const xpMultiplier = parseInt(args.multiplier);
             if (!userdata.shopItems) userdata.shopItems = [];
@@ -166,7 +270,7 @@ try {
             }
         }
 
-        // ---- 4.6 解锁所有关卡（保留原有逻辑） ----
+        // ---- 6.9 解锁所有关卡（保留原有逻辑） ----
         if (args.unlock_all) {
             if (userdata.currentCourse && Array.isArray(userdata.currentCourse.pathSectioned)) {
                 userdata.currentCourse.pathSectioned.forEach(section => {
@@ -184,32 +288,37 @@ try {
         }
     };
 
-    // 处理 batch 响应
-    if (obj.responses && obj.responses.length >= 2) {
-        if (obj.responses[0].headers && 'etag' in obj.responses[0].headers) {
-            // 有 etag 表示未修改，跳过
-            $done({});
-        } else {
-            const b0 = obj.responses[0].body;
-            if (typeof b0 === 'string') {
-                const userdata = JSON.parse(b0);
-                applyMax(userdata);
-                obj.responses[0].body = JSON.stringify(userdata);
-            } else {
-                applyMax(b0);
-                obj.responses[0].body = b0;
+    // batch：遍历 responses，只改真正的用户数据对象
+    if (Array.isArray(obj.responses)) {
+        let changed = false;
+        obj.responses.forEach(r => {
+            let b = r.body;
+            if (typeof b === 'string') {
+                try { b = JSON.parse(b); } catch (e) { return; }
             }
-            $done({ body: JSON.stringify(obj) });
-        }
-    } else if (obj && typeof obj === 'object' &&
-               (obj.shopItems !== undefined || obj.subscriberLevel !== undefined ||
-                (obj.id && obj.trackingProperties))) {
-        // 直接的用户数据对象
-        applyMax(obj);
-        $done({ body: JSON.stringify(obj) });
-    } else {
-        $done({});
+            if (b && typeof b === 'object' &&
+                (b.subscriberLevel !== undefined || b.trackingProperties !== undefined)) {
+                applyMax(b);
+                r.body = JSON.stringify(b);
+                changed = true;
+            }
+        });
+        if (changed) { done(obj); return; }
+        keep();
+        return;
     }
+
+    // 直接的用户数据对象（如 ?fields=subscriberLevel）
+    if (obj && typeof obj === 'object' &&
+        (obj.shopItems !== undefined || obj.subscriberLevel !== undefined ||
+         (obj.id && obj.trackingProperties))) {
+        applyMax(obj);
+        done(obj);
+        return;
+    }
+
+    keep();
 } catch (e) {
+    console.log('[Duolingo Max] 解析失败，原样返回: ' + e);
     $done({});
 }
