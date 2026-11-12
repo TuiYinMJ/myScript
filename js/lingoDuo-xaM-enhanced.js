@@ -1,13 +1,19 @@
 try {
-    // ===== 专门处理 config 接口：强制开放视频通话 =====
+    // ===== 专门处理 config 接口：强制开放视频通话 + 伪装区域 =====
     if ($request.url.includes('/2023-05-23/config') && $response.body) {
         let configBody = JSON.parse($response.body);
 
+        // 1. 强制开启视频通话相关的 featureFlags
         if (configBody.featureFlags) {
             configBody.featureFlags.ios_video_call_tab_should_force_unavailable_state = false;
-            // 可选：如果确认需要，也可以开启这个
-            // configBody.featureFlags.ios_video_call_public_testing_indicator_china = true;
+            // 可选：确保测试标识开启
+            configBody.featureFlags.ios_video_call_public_testing_indicator_china = true;
         }
+
+        // 2. 伪装区域，欺骗客户端的地域判断
+        configBody.ipCountry = "US";
+        if (configBody.countryCode !== undefined) configBody.countryCode = "US";
+
         $done({ body: JSON.stringify(configBody) });
     } else {
         // ===== 原来的用户数据 / batch 逻辑 =====
