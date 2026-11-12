@@ -1,11 +1,15 @@
-#!name = ixybz 去广告解锁VIP
-#!desc = 依赖 GitHub Raw 远程脚本
+#!name = 玄易 去广告解锁VIP
+#!desc = 解锁玄易会员字段（member/pay/会员等级/到期时间），去除首页 Banner 与广告位配置；请求侧禁用缓存校验，确保拿到完整响应
 #!author = TuiYinMJ
+#!homepage = https://github.com/TuiYinMJ/myScript
+#!icon = https://github.com/TuiYinMJ/myScript/blob/master/res/ixybz.png?raw=true
+#!tag = 去广告, 解锁会员
+#!openUrl = https://apps.apple.com/cn/app/id1168579372
 #!loon_version = 3.5.1(983)
 
 [Script]
-request if ${url} ~= /^https?:\/\/app\.ixybz\.com\// then script("https://raw.githubusercontent.com/TuiYinMJ/myScript/refs/heads/master/js/ixybz-request.js") with tag="ixybz请求", requires_body=false
-response if ${url} ~= /^https?:\/\/app\.ixybz\.com\// then script("https://raw.githubusercontent.com/TuiYinMJ/myScript/refs/heads/master/js/ixybz-response.js") with tag="ixybz响应", requires_body=true, timeout=120
+request if ${url} ~= /^https?:\/\/app\.ixybz\.com\// then script("https://raw.githubusercontent.com/TuiYinMJ/myScript/refs/heads/master/js/ixybz-request.js") with tag="玄易请求", requires_body=false
+response if ${url} ~= /^https?:\/\/app\.ixybz\.com\// then script("https://raw.githubusercontent.com/TuiYinMJ/myScript/refs/heads/master/js/ixybz-response.js") with tag="玄易响应", requires_body=true, timeout=120
 
 [MITM]
 hostname = app.ixybz.com

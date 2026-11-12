@@ -1,3 +1,15 @@
+/*
+ * 玄易（app.ixybz.com）去广告 + 会员解锁
+ *
+ * 去广告：
+ *   /app/v1/banner/get               首页 Banner 列表清空
+ *   /app/v1/config/get/advposition   广告位配置置空
+ *
+ * 会员：
+ *   /app/v1/user/info                member/pay 置 true，补齐会员等级与到期时间
+ *   其他 JSON 接口                     递归兜底，把常见会员布尔/等级/到期字段改为会员状态
+ */
+
 let body;
 let url = $request.url;
 let ct = $response.headers["Content-Type"] || $response.headers["content-type"] || "";

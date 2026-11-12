@@ -1,7 +1,10 @@
 #!name = 边界猎手 SVIP 解锁
-#!desc = 修改 litebhapi.belugabh.com 会员相关接口响应
+#!desc = 解锁边界猎手（BH pro）SVIP：会员状态与到期时间、商圈查询/地图搜索次数、权益次数、报告定价；同时去除开屏、信息流、悬浮窗、问卷及付费弹窗广告
 #!author = TuiYinMJ
 #!homepage = https://github.com/TuiYinMJ/myScript
+#!icon = https://github.com/TuiYinMJ/myScript/blob/master/res/bjls.png?raw=true
+#!tag = 去广告, 解锁会员
+#!openUrl = https://apps.apple.com/cn/app/id1641843287
 #!loon_version = 3.5.1(983)
 
 [Script]
