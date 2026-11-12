@@ -1,0 +1,11 @@
+#!name = 微信读书 去推广 + 付费章节
+#!desc = 关闭微信读书“看广告领福利”入口，并伪装付费章节标记（实际阅读权限仍由服务端校验）
+#!author = TuiYinMJ
+#!homepage = https://github.com/TuiYinMJ/myScript
+#!loon_version = 3.5.1(983)
+
+[Script]
+response if ${url} ~= /^https:\/\/i\.weread\.qq\.com\/(feature|mobileSync|book\/chapterInfos)/i then script("https://raw.githubusercontent.com/TuiYinMJ/myScript/refs/heads/master/js/weread.js") with tag="微信读书去推广/章节", requires_body=true, timeout=120
+
+[MITM]
+hostname = i.weread.qq.com
