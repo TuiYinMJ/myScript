@@ -2,8 +2,8 @@
  * Duolingo Max 解锁 增强版
  *
  * 处理接口：
- *   /2023-05-23/config                     视频通话开关、广告开关
- *   /2023-05-23/batch                      用户数据（subscriberLevel / shopItems / 体力 / 能量 / 订阅）
+ *   /2023-05-23/config                     仅改两个视频通话真实 flag，其余不动
+ *   /2023-05-23/batch                      用户数据（subscriberLevel / shopItems / 订阅）
  *   /2023-05-23/users/<id>                 用户数据（含 ?fields=subscriberLevel）
  *   /2023-05-23/users/<id>/available-features  会员权益列表
  *   /2023-05-23/messaging/get-messages     Super/Max 引导消息过滤
@@ -69,36 +69,29 @@ try {
     }
 
     // ============ 2. available-features：补全会员权益 ============
-    // 免费版实际只返回 ["EXPLAIN_MY_ANSWER_FOR_ENERGY_COST"]
+    // 与服务端返回合并而非覆盖（免费版实际返回 ["EXPLAIN_MY_ANSWER_FOR_ENERGY_COST"]），
+    // 避免丢掉客户端依赖的免费权益标记
     if (url.includes('/available-features')) {
         let o = JSON.parse($response.body);
-        o.subscriptionFeatures = MAX_FEATURES.slice();
+        const orig = Array.isArray(o.subscriptionFeatures) ? o.subscriptionFeatures : [];
+        o.subscriptionFeatures = Array.from(new Set(orig.concat(MAX_FEATURES)));
         // purchasableFeatures 保持原样，避免破坏内购流程
         done(o);
         return;
     }
 
-    // ============ 3. config：视频通话 + 广告开关 ============
+    // ============ 3. config：只保证视频通话可用 ============
+    // 只改 config 实际下发的两个视频 flag，其余（广告 flags、ipCountry、实验开关等）
+    // 一律不动——强改未下发的 flag / 地区字段会导致练习中心等功能入口异常消失
     if (url.includes('/2023-05-23/config')) {
         let configBody = JSON.parse($response.body);
 
         if (configBody.featureFlags) {
             const ff = configBody.featureFlags;
-            // 视频通话 tab 不被强制禁用（config 实际下发的两个真实 flag）
             ff.ios_video_call_tab_should_force_unavailable_state = false;
             ff.ios_video_call_public_testing_indicator_china = true;
-            ff.ios_vc_sherpa_eligible_countries = "US,CN,SG,JP,KR,TW,HK,MO,BR,IN,MX,ID,AR,CO,PE,VE,CL,EC,BO,GT,PH,DO,PY,VN,CU,CR,SV,HN,UY,PR,PA,NI,HT,TH,MY,TL,FM,MP,AS,PW,PK,BD,RE,SX,AX,IO,BV,TK,UM,SH,NU,TF,HM,GS,PN,AG,CW,JE,VC,SJ,BS,GM,BA,CD,CG,CI,CZ,FK,KN,MK,MM,PM,ST,TC,TT,VI,SZ,BQ,NF,VA,AN,NG,RU,IR,TR,EG,KE,UA,ZA,SA,MA,DZ,IQ,TZ,AF,ET,UG,UZ,GH,KZ,SD,ML,AE,ZM,SN,AO,JO,SY,ZW,TN,AZ,NP,YE,CM,BY,MZ,RS,RW,LY,LB,BF,KW,OM,BJ,PS,NE,GE,KG,MD,QA,TJ,MG,LK,MW,GN,TD,AL,AM,SO,BH,XK,BI,JM,TM,GA,NA,BW,KH,SL,TG,MR,MU,SS,LR,LS,PG,CF,DJ,LA,ME,MN,GY,GQ,CV,SR,MQ,GW,ER,GP,FJ,BB,BT,BZ,KM,SB,LC,MV,BN,GF,PF,YT,AW,NC,AD,SC,GD,BM,VU,GG,KY,IM,GL,WS,DM,FO,GU,MC,LI,GI,KI,EH,TO,SM,KP,MF,VG,MH,AI,CK,BL,NR,TV,WF,MS,AQ,CX,CC";
-            ff.ios_should_reduce_experiment_requests = 0.0;
-
-            // 广告相关开关（仅在服务端确实下发该 flag 时改写）
-            if ('ios_literacy_ad_rollout' in ff) ff.ios_literacy_ad_rollout = 0.0;
-            if ('ios_allow_streak_ext_client_rendered_ads_prefetch' in ff) ff.ios_allow_streak_ext_client_rendered_ads_prefetch = false;
-            if ('ios_ads_instream_custom_skip_offset_seconds' in ff) ff.ios_ads_instream_custom_skip_offset_seconds = 0;
-            if ('ios_ads_instream_custom_skip_threshold_seconds' in ff) ff.ios_ads_instream_custom_skip_threshold_seconds = 0;
         }
 
-        configBody.ipCountry = "US";
-        if (configBody.countryCode !== undefined) configBody.countryCode = "US";
         done(configBody);
         return;
     }
@@ -196,35 +189,21 @@ try {
         userdata.trackingProperties.no_network_ads = true;
         userdata.trackingProperties.unlimited_hearts = true;
 
-        // ---- 6.4 无限体力 / 无限能量 ----
+        // ---- 6.4 无限体力 ----
+        // 只改真实存在的 unlimitedHeartsAvailable（Super/Max 用户该值为 true）。
+        // 不强改 hearts/maxHearts/useHealth/energyConfig 等字段——能量系统驱动
+        // 听力、口语等练习入口，强改会让练习中心卡片异常消失。
         if (userdata.health) {
             userdata.health.unlimitedHeartsAvailable = true;
-            userdata.health.useHealth = false;
-            userdata.health.hearts = 999;
-            userdata.health.maxHearts = 999;
-            userdata.health.secondsPerHeartSegment = 0;
-            userdata.health.secondsUntilNextHeartSegment = null;
-        }
-        if (userdata.energyConfig) {
-            userdata.energyConfig.energy = 999;
-            userdata.energyConfig.maxEnergy = 999;
-            userdata.energyConfig.baseMaxEnergy = 999;
-            userdata.energyConfig.secondsPerEnergyUnit = 0;
-            userdata.energyConfig.secondsUntilNextEnergyUnit = 0;
         }
 
-        // ---- 6.6 去广告 / 促销 ----
-        if (userdata.adsConfig) {
-            userdata.adsConfig.allowPersonalizedAds = false;
-            userdata.adsConfig.units = {};
-        }
-        userdata.literacyAdGroup = null;
-        userdata.adRequestAgeGroup = null;
-        userdata.plusDiscounts = [];
-        if (userdata.pushFamilyPlanNudge !== undefined) userdata.pushFamilyPlanNudge = false;
-        if (userdata.pushPromotion !== undefined) userdata.pushPromotion = false;
+        // ---- 6.5 去广告 / 促销 ----
+        // 用户数据中的 adsConfig.units / literacyAdGroup / adRequestAgeGroup /
+        // plusDiscounts / push* 一律不动：units 清空和 literacyAdGroup 置空会
+        // 连带隐藏依赖广告位与能量解锁的功能入口。去广告由 plus-promotions 与
+        // fetch_decisions 决策清空（第 1、0 分支）完成，已足够。
 
-        // ---- 6.7 订阅记录：续期真实条目（itemType 用服务端真实值 gold_subscription） ----
+        // ---- 6.6 订阅记录：续期真实条目（itemType 用服务端真实值 gold_subscription） ----
         if (Array.isArray(userdata.subscriptionConfigs) && userdata.subscriptionConfigs.length) {
             // 更新已有的（含已过期）订阅记录，保留服务端下发的真实字段
             userdata.subscriptionConfigs.forEach(cfg => {
@@ -246,7 +225,7 @@ try {
             }];
         }
 
-        // ---- 6.8 经验加倍（保留原有逻辑） ----
+        // ---- 6.7 经验加倍（保留原有逻辑） ----
         if (args.xp_boost) {
             const xpMultiplier = parseInt(args.multiplier);
             if (!userdata.shopItems) userdata.shopItems = [];
@@ -271,7 +250,7 @@ try {
             }
         }
 
-        // ---- 6.9 解锁所有关卡（保留原有逻辑） ----
+        // ---- 6.8 解锁所有关卡（保留原有逻辑） ----
         if (args.unlock_all) {
             if (userdata.currentCourse && Array.isArray(userdata.currentCourse.pathSectioned)) {
                 userdata.currentCourse.pathSectioned.forEach(section => {
