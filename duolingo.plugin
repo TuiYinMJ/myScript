@@ -2,7 +2,7 @@
 #!desc = Duolingo iOS 版解锁 Max 会员，实现无限体力、去除广告、解锁视频通话等，支持经验加倍和自定义限时挑战时长
 #!author = R0kernel
 #!homepage = https://github.com/TuiYinMJ/myScript/tree/master
-#!icon = https://github.com/TAKAGIVEGETA/MyScripts/blob/main/lingoDuo/lingoDuo.png?raw=true
+#!icon = https://github.com/TuiYinMJ/myScript/blob/master/res/lingoDuo.png?raw=true
 #!loon_version = 3.5.1(983)
 [Argument]
 xp_boost = switch, false, tag = 经验加倍, desc = 开启后练习将获得加倍经验
