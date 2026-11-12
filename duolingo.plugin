@@ -19,13 +19,13 @@ instant_clear = switch, false, tag = 直接通关, desc = 开启后进入关卡�
 ^https://ios-api-2\.duolingo\.cn/2023-05-23/config url request-header "Accept-Language" replace "en-US,en;q=0.9"
 
 [Script]
-# 视频通话解锁：处理 config 接口
-response if ${url} ~= /^https?:\/\/(ios-api-[a-z0-9-]+|api\d+)\.duolingo\.c(n|om)\/2023-05-23\/config/i then script("https://raw.githubusercontent.com/TuiYinMJ/myScript/refs/heads/master/js/lingoDuo-xaM-enhanced.js", {${xp_boost}, ${multiplier}, ${unlock_all}}) with tag="视频通话解锁", timeout=120, requires_body=true
-# 解锁Max：处理用户数据/batch 接口
-response if ${url} ~= /^https?:\/\/(ios-api-[a-z0-9-]+|api\d+)\.duolingo\.c(n|om)\/2023-05-23\/(batch|users\/[^\/?#]+)(?:[?#]|$)/i then script("https://raw.githubusercontent.com/TuiYinMJ/myScript/refs/heads/master/js/lingoDuo-xaM-enhanced.js", {${xp_boost}, ${multiplier}, ${unlock_all}}) with tag="解锁Max", timeout=120, requires_body=true
-# 限时挑战时长修改
+# 视频通话解锁 & 会员伪装（统一处理 config / batch / users / messaging / subscription-catalog）
+response if ${url} ~= /^https?:\/\/(ios-api-[a-z0-9-]+|api\d+)\.duolingo\.c(n|om)\/2023-05-23\/(config|batch|users\/[^\/?#]+|messaging\/get-messages|subscription-catalog)/i then script("https://raw.githubusercontent.com/TuiYinMJ/myScript/refs/heads/master/js/lingoDuo-xaM-enhanced.js", {${xp_boost}, ${multiplier}, ${unlock_all}}) with tag="解锁Max", timeout=120, requires_body=true
+
+# 限时挑战时长修改（不变）
 response if ${url} ~= /^https?:\/\/(?:ios-api-[a-z0-9-]+|api\d+)\.duolingo\.c(?:n|om)\/.*\/live-ops-challenges/i then script("https://raw.githubusercontent.com/TuiYinMJ/myScript/refs/heads/master/js/lingoDuo-time-modifier.js", {${timer_mins}}) with enable=${timer_switch}, tag="限时挑战时长修改", timeout=120, requires_body=true
-# 直接通关（部分关卡）
+
+# 直接通关（不变）
 response if ${url} ~= /^https?:\/\/(?:ios-api-[a-z0-9-]+|api\d+|stories)\.duolingo\.c(?:n|om)\/(?:.*\/sessions|api2\/stories)/i then script("https://raw.githubusercontent.com/TuiYinMJ/myScript/refs/heads/master/js/lingoDuo-clear.js") with enable=${instant_clear}, tag="直接通关(部分关卡)", timeout=120, requires_body=true
 
 [MITM]
