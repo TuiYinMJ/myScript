@@ -2,6 +2,20 @@
  * 混沌大学 —— 会员改写统一脚本（单条 Loon Response Script）
  *
  * 抓包依据：ProxyPin 18:17 / 18:33 / 18:57 / 19:00 四份 HAR
+ * 前端依据：yxs-pic.oss-cn-beijing.aliyuncs.com 上的
+ *           /dhy/index.3d3d7d22.js 与 /online_college/index.9bfab3ca.js
+ *
+ * === 决定性发现（19:35）===
+ * 会员页 H5 判断「是否在线会员」用的是：
+ *     isSkuMode(userInfo.sku_list || [], "dhy")
+ * 而 isSkuMode 的实现是：
+ *     (list, mode) => !!list.filter(x => x.sku_mode === mode).length
+ * 即 sku_list 里必须有 sku_mode === "dhy" 的元素。
+ * HAR 里 get_user_info 的 sku_list 是 []，所以无论把 is_dhy_user 等布尔位改成什么，
+ * 前端的 is_dhy 始终是 false，页面照旧显示「立即开通 / 非会员」。
+ * 课程页 bundle 也用同一套：sku_list.map(x => x.sku_mode).includes("dhy")。
+ * 因此这里给 sku_list 补一个最小元素 {sku_mode:"dhy"}，这是「造字段」的唯一例外，
+ * 有前端源码佐证、结构明确，且只增不改。
  *
  * 三层策略（稳妥优先）：
  *   1) 已知接口 -> 完整字段表，改得最全
@@ -9,7 +23,7 @@
  *   3) 未知接口 -> 高置信度白名单兜底，覆盖点进播放页后新出现的接口
  *
  * 安全约束：
- *   - 只改响应里「已存在」的键，绝不凭空造字段
+ *   - 除 sku_list 外只改响应里「已存在」的键，绝不凭空造字段
  *   - 目标值与原值类型不一致时跳过，避免把状态字符串改成数字
  *   - 兜底表不含时间戳 / 文案 / 枚举（活动结束时间、state_control 等误伤风险高）
  *   - 任何异常都打日志再原样放行，绝不静默吞掉
@@ -28,8 +42,12 @@ const FAR_ISO = "2099-12-31T23:59:59.000Z";
 const FAR_TS = 4102416000;
 const FAR_DAYS = 9999;
 
-// 保守模式无效时可改成 true：额外改写课程枚举字段（state_control / free_trial）。
-// 这些字段的「会员态」取值在抓包里没有样本，属于实验项，默认关闭。
+// 核心修复：给 sku_list 补 {sku_mode:"dhy"}。若出现奇怪的「已购」UI，改成 false 即可回退。
+const PATCH_SKU_LIST = true;
+
+// 保守模式无效时可改成 true：额外改写课程枚举字段（state_control / free_trial / has_bought）。
+// 这些字段的「会员态」取值在抓包里没有样本，属于实验项，默认关闭；
+// 已经能正常播放和拖动时不要打开，尤其 free_trial 会动到试看入口。
 const AGGRESSIVE = false;
 
 function log(msg) {
@@ -102,6 +120,7 @@ const SCHEDULE_MAP = { has_right: 1 };
 if (AGGRESSIVE) {
   SCHEDULE_MAP.state_control = 1;
   SCHEDULE_MAP.free_trial = 0;
+  SCHEDULE_MAP.has_bought = 1;
 }
 
 // 兜底只收「语义绝对明确」的标量字段；不含时间戳、文案、枚举
@@ -138,6 +157,30 @@ function patchTree(node, mapping, stat, depth) {
       }
     }
     if (container) patchTree(cur, mapping, stat, depth + 1);
+  });
+}
+
+/* ---------- 给 sku_list 补 dhy（前端 isSkuMode 的唯一依据） ---------- */
+function ensureDhySku(node, stat, depth) {
+  if (depth > 10 || node === null) return;
+  if (Array.isArray(node)) {
+    for (let i = 0; i < node.length; i++) ensureDhySku(node[i], stat, depth + 1);
+    return;
+  }
+  if (!isObj(node)) return;
+  if (Array.isArray(node.sku_list)) {
+    const has = node.sku_list.some(function (x) {
+      return isObj(x) && x.sku_mode === "dhy";
+    });
+    if (!has) {
+      node.sku_list.push({ sku_mode: "dhy" });
+      stat.n++;
+      if (stat.keys.indexOf("sku_list+") === -1) stat.keys.push("sku_list+");
+    }
+  }
+  Object.keys(node).forEach(function (k) {
+    const v = node[k];
+    if (v !== null && typeof v === "object") ensureDhySku(v, stat, depth + 1);
   });
 }
 
@@ -210,10 +253,20 @@ function main() {
     return;
   }
 
+  // CORS 预检的空壳响应 {"error_no":0,"error_msg":""}，静默放行避免日志噪音
+  if (isObj(obj) && obj.error_no === 0 && typeof obj.error_msg === "string" &&
+      !obj.data && Object.keys(obj).length === 2) {
+    $done({});
+    return;
+  }
+
   const picked = pickMapping(key);
   const stat = { n: 0, keys: [] };
   try {
     patchTree(obj, picked[0], stat, 0);
+    if (PATCH_SKU_LIST && (picked[1] === "用户信息" || picked[1] === "通用兜底")) {
+      ensureDhySku(obj, stat, 0);
+    }
   } catch (e) {
     log("改写异常，原样放行: " + e + " / " + key);
     $done({});
