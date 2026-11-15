@@ -1,0 +1,10 @@
+#!name = 混沌大学 VIP 身份修改
+#!desc = 安全测试：改写 get_user_info 响应中的会员字段
+#!author = Aether
+#!homepage = local
+
+[Script]
+http-response ^https:\/\/user\.hundun\.cn\/get_user_info script-path=https://raw.githubusercontent.com/TuiYinMJ/myScript/refs/heads/master/js/hund.js, requires-body=true, timeout=15, tag=混沌VIP改写
+
+[Mitm]
+hostname = user.hundun.cn, course.hundun.cn, tools.hundun.cn
