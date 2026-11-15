@@ -1,10 +1,16 @@
 #!name = 混沌大学 VIP 身份修改
-#!desc = 安全测试：改写 get_user_info 响应中的会员字段
+#!desc = 改写 get_user_info 的会员/学籍字段，并清理 gzip / Etag 响应头
 #!author = Aether
-#!homepage = local
+#!homepage = https://github.com/TuiYinMJ/myScript
+#!loon_version = 3.5.1(983)
+
+[Rewrite]
+# 该接口带 Etag，命中 304 时脚本拿不到 body，强制服务端返回完整响应
+request if ${url} ~= /^https:\/\/user\.hundun\.cn\/get_user_info/i then request.header.del("If-None-Match")
 
 [Script]
-http-response ^https:\/\/user\.hundun\.cn\/get_user_info script-path=https://raw.githubusercontent.com/TuiYinMJ/myScript/refs/heads/master/js/hund.js, requires-body=true, timeout=15, tag=混沌VIP改写
+# 注意：服务端返回 Content-Type: text/html，但 body 是 JSON，切勿加 application/json 条件
+response if ${url} ~= /^https:\/\/user\.hundun\.cn\/get_user_info/i then script("https://raw.githubusercontent.com/TuiYinMJ/myScript/refs/heads/master/js/hund.js") with tag="混沌VIP改写", timeout=20, requires_body=true, debug=true
 
-[Mitm]
+[MITM]
 hostname = user.hundun.cn, course.hundun.cn, tools.hundun.cn
