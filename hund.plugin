@@ -19,6 +19,9 @@ request if ${url} ~= /^https:\/\/(?:user|capi|course)\.hundun\.cn\/|^https:\/\/t
 # URL 末尾的 ?v=3 是缓存破坏参数：Loon 按 URL 缓存远程脚本，改了 JS 但 URL 不变会一直跑旧代码。
 # 每次改完 js/hund.js，把版本号 +1 并重载 Loon 配置。
 #
+# 若怀疑 raw 的 CDN 仍在回旧内容，可换成固定 commit 的不可变地址（本版对应 105ff17）：
+#   https://raw.githubusercontent.com/TuiYinMJ/myScript/105ff17/js/hund.js
+#
 # 最稳妥的用法（不受 GitHub raw 连通性与远程缓存影响）：
 #   把 js/hund.js 放进 Loon 脚本目录，改用同目录下的 hund-local.plugin（script("hund.js")）。
 response if ${url} ~= /^https:\/\/(?:user|capi|course)\.hundun\.cn\/|^https:\/\/tools\.hundun\.cn\/h5Bin\/hundun-agent\/api\/auth\//i then script("https://raw.githubusercontent.com/TuiYinMJ/myScript/refs/heads/master/js/hund.js?v=3") with tag="混沌会员全接口", timeout=20, requires_body=true, debug=true
