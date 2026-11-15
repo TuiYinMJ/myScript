@@ -1,24 +1,25 @@
 /*
- * 混沌大学 —— 会员改写统一脚本（单条 Loon Response Script，按 host + path 分派）
+ * 混沌大学 —— 会员改写统一脚本（单条 Loon Response Script）
  *
  * 抓包依据：ProxyPin 18:17 / 18:33 / 18:57 / 19:00 四份 HAR
  *
- * 为什么要分派：
- *   - "开通在线会员" 的文案来自 user.hundun.cn/dhy/index 的 data.dhy_expire_desc，
- *     不是 get_user_info。只改 get_user_info，会员页永远显示「尚未开通在线会员」。
- *   - 会员状态散落在 user / capi / tools 三个域的多个接口，capi.hundun.cn 尤其容易漏掉。
- *   - Loon 3.5.1(983)+ 的 Response Script 是 first-match，一个请求只执行一条，
- *     所以插件里只留一条规则，由本脚本按 URL 精确分派。
+ * 三层策略（稳妥优先）：
+ *   1) 已知接口 -> 完整字段表，改得最全
+ *   2) 课程列表 -> 权限字段表（has_right 等）
+ *   3) 未知接口 -> 高置信度白名单兜底，覆盖点进播放页后新出现的接口
  *
- * 设计取舍（最稳妥）：
- *   - 字段白名单 + 只改响应里已存在的键，不凭空造字段、不做暴力递归兜底，
- *     避免把前端改崩（Duolingo 那次「发明改写」的教训）。
- *   - 任何异常都打日志再原样放行，绝不静默吞掉。
- *   - 只有确实改了字段才替换响应头，避免误伤静态资源 / 大文件。
+ * 安全约束：
+ *   - 只改响应里「已存在」的键，绝不凭空造字段
+ *   - 目标值与原值类型不一致时跳过，避免把状态字符串改成数字
+ *   - 兜底表不含时间戳 / 文案 / 枚举（活动结束时间、state_control 等误伤风险高）
+ *   - 任何异常都打日志再原样放行，绝不静默吞掉
  *
- * 已知边界：
- *   - 正课播放地址由服务端签发带 auth_key 的 VOD URL，抓包里看不到下发接口。
- *     改客户端 JSON 只能改 UI 与客户端门控，无法保证解锁正课播放。
+ * 诊断：改写成功后响应头带 X-Hund-Patched: 1 与 Cache-Control: no-store，
+ *       Loon 日志会打印命中的字段名。抓包或日志看到这两样即可确认脚本执行过。
+ *
+ * 硬边界：正课播放地址是服务端签发的整片 VOD URL（auth_key 覆盖完整 244MB mp4，
+ *        CDN 对任意 Range 都返回 206），试看截断发生在客户端。改客户端 JSON 能改 UI
+ *        与客户端门控；若播放页另走服务端二次鉴权，脚本层面到此为止。
  */
 
 const FAR_DATE = "2099-12-31";
@@ -26,6 +27,10 @@ const FAR_DATETIME = "2099-12-31 23:59:59";
 const FAR_ISO = "2099-12-31T23:59:59.000Z";
 const FAR_TS = 4102416000;
 const FAR_DAYS = 9999;
+
+// 保守模式无效时可改成 true：额外改写课程枚举字段（state_control / free_trial）。
+// 这些字段的「会员态」取值在抓包里没有样本，属于实验项，默认关闭。
+const AGGRESSIVE = false;
 
 function log(msg) {
   console.log("[hund] " + msg);
@@ -35,126 +40,163 @@ function isObj(o) {
   return o !== null && typeof o === "object" && !Array.isArray(o);
 }
 
-function setIf(o, key, value) {
-  if (!isObj(o) || !(key in o)) return 0;
-  o[key] = value;
-  return 1;
+/* ---------- 字段表：键 -> 目标值 ---------- */
+
+const USER_MAP = {
+  // 身份开关
+  is_sxy19_user: 1, purchased_yxs: 1, purchased_yxs_tgroup: 1,
+  purchased_sxy19: 1, purchased_wlxy: 1, is_yxs_old_vip: 1,
+  is_buy_sxy: 1, is_dhy_user: 1, is_cxy18_user: 1,
+  // 日期
+  sxy19_expire_date: FAR_DATE, sxy_expire_date: FAR_DATE, yxs_expire_date: FAR_DATE,
+  // 服务端时间串
+  ss_sxy_expire_time: FAR_DATETIME, ss_sxy19_expire_time: FAR_DATETIME,
+  ss_yxs_expire_time: FAR_DATETIME, ss_cxy18_expire_time: FAR_DATETIME,
+  ss_sxy_join_time: FAR_DATETIME, ss_yxs_join_time: FAR_DATETIME,
+  ss_cxy18_join_time: FAR_DATETIME,
+  // 时间戳
+  dhy_expire_time: FAR_TS, expire_time: FAR_TS,
+  dhy_join_time: FAR_TS, join_time: FAR_TS,
+  dhy_left_days: FAR_DAYS,
+  // UI 文案
+  yxs_tip_wording: "已加入混沌研习社",
+  yxs_tip_button: "查看会员权益",
+  enroll_wording: "学籍有效",
+  expire_time_display: "会员有效至 " + FAR_DATE,
+  dhy_expire_time_display: "在线会员有效至 " + FAR_DATE,
+  super_expire_time_display: "会员有效至 " + FAR_DATE,
+  online_expire_time_display: "会员有效至 " + FAR_DATE
+};
+
+const DHY_MAP = {
+  dhy_expire_desc: "在线会员有效至 " + FAR_DATE,
+  special_user_type: 1
+};
+
+const UPCONFIG_MAP = {
+  normal_member_days: FAR_DAYS
+  // can_upgrade 保持原值：改成 true 反而会冒出「升级」按钮
+};
+
+const SALE_MAP = {
+  new_user_dhy_days: FAR_DAYS,
+  course_right_days: FAR_DAYS,
+  first_join_dhy_msg: "会员有效至 " + FAR_DATE,
+  renew_join_dhy_msg: "会员有效至 " + FAR_DATE
+};
+
+const AGENT_MAP = {
+  isMember: true,
+  canUseSkill: true,
+  statusCode: "MEMBER",
+  statusDesc: "会员有效至 " + FAR_DATE,
+  memberCheckDesc: "会员有效",
+  expiresAt: FAR_ISO,
+  remainingDays: FAR_DAYS,
+  tier: "member",
+  authenticated: true,
+  courseLearningReady: true
+};
+
+const SCHEDULE_MAP = { has_right: 1 };
+if (AGGRESSIVE) {
+  SCHEDULE_MAP.state_control = 1;
+  SCHEDULE_MAP.free_trial = 0;
 }
 
-function setAll(o, keys, value) {
-  let n = 0;
-  if (!isObj(o)) return n;
-  keys.forEach(function (k) { n += setIf(o, k, value); });
-  return n;
+// 兜底只收「语义绝对明确」的标量字段；不含时间戳、文案、枚举
+const FALLBACK_MAP = {
+  has_right: 1, has_permission: 1, has_auth: 1, has_bought: 1,
+  can_play: 1, can_watch: 1, can_view: 1, can_study: 1, can_learn: 1,
+  allow_play: 1, is_playable: 1,
+  is_buy: 1, is_purchased: 1, is_paid: 1, is_authorized: 1,
+  is_vip: 1, is_dhy_user: 1, is_member: 1,
+  need_buy: 0, need_pay: 0, need_vip: 0,
+  is_locked: 0, locked: 0, is_trial: 0,
+  dhy_left_days: FAR_DAYS, normal_member_days: FAR_DAYS,
+  course_right_days: FAR_DAYS, new_user_dhy_days: FAR_DAYS,
+  remaining_days: FAR_DAYS, left_days: FAR_DAYS, vip_left_days: FAR_DAYS
+};
+
+/* ---------- 递归改写（只改已存在、类型一致的标量键） ---------- */
+function patchTree(node, mapping, stat, depth) {
+  if (depth > 12 || node === null) return;
+  if (Array.isArray(node)) {
+    for (let i = 0; i < node.length; i++) patchTree(node[i], mapping, stat, depth + 1);
+    return;
+  }
+  if (typeof node !== "object") return;
+  Object.keys(node).forEach(function (k) {
+    const cur = node[k];
+    const container = cur !== null && typeof cur === "object";
+    if (!container && Object.prototype.hasOwnProperty.call(mapping, k)) {
+      const target = mapping[k];
+      if (typeof cur === typeof target && cur !== target) {
+        node[k] = target;
+        stat.n++;
+        if (stat.keys.indexOf(k) === -1) stat.keys.push(k);
+      }
+    }
+    if (container) patchTree(cur, mapping, stat, depth + 1);
+  });
 }
 
 function parseUrl(u) {
   const m = String(u || "").match(/^https?:\/\/([^/?#]+)(\/[^?#]*)?/i);
-  return {
-    host: m ? m[1].toLowerCase() : "",
-    path: m ? (m[2] || "/") : ""
-  };
+  return { host: m ? m[1].toLowerCase() : "", path: m ? (m[2] || "/") : "" };
 }
 
 function cleanHeaders(original) {
   const h = {};
-  const drop = ["content-encoding", "content-length", "etag", "transfer-encoding", "content-type", "cache-control"];
+  const drop = ["content-encoding", "content-length", "etag", "transfer-encoding", "cache-control"];
   Object.keys(original || {}).forEach(function (k) {
     if (drop.indexOf(k.toLowerCase()) === -1) h[k] = original[k];
   });
-  h["Content-Type"] = "application/json; charset=UTF-8";
+  // 保留服务端原 Content-Type（这批接口返回 text/html 却是 JSON，改它只会引入额外差异）
   h["Cache-Control"] = "no-store, no-cache, must-revalidate";
+  h["Pragma"] = "no-cache";
+  h["X-Hund-Patched"] = "1";
   return h;
 }
 
-/* ---------- 1. 主用户对象：学籍 / 在线会员 ---------- */
-function patchUserInfo(d) {
-  let n = 0;
-  n += setAll(d, [
-    "is_sxy19_user", "purchased_yxs", "purchased_yxs_tgroup", "purchased_sxy19",
-    "purchased_wlxy", "is_yxs_old_vip", "is_buy_sxy", "is_dhy_user",
-    "is_cxy18_user", "tmp_is_ever_member"
-  ], 1);
-  n += setAll(d, ["sxy19_expire_date", "sxy_expire_date", "yxs_expire_date"], FAR_DATE);
-  n += setAll(d, [
-    "ss_sxy_expire_time", "ss_sxy19_expire_time", "ss_yxs_expire_time",
-    "ss_cxy18_expire_time", "ss_sxy_join_time", "ss_yxs_join_time", "ss_cxy18_join_time"
-  ], FAR_DATETIME);
-  n += setAll(d, ["dhy_expire_time", "expire_time", "dhy_join_time", "join_time"], FAR_TS);
-  n += setIf(d, "dhy_left_days", FAR_DAYS);
-  n += setIf(d, "yxs_tip_wording", "已加入混沌研习社");
-  n += setIf(d, "yxs_tip_button", "查看会员权益");
-  n += setIf(d, "enroll_wording", "学籍有效");
-  n += setAll(d, [
-    "expire_time_display", "dhy_expire_time_display",
-    "super_expire_time_display", "online_expire_time_display"
-  ], "会员有效至 " + FAR_DATE);
-  return n;
-}
-
-/* ---------- 2. 在线会员购买页：「尚未开通在线会员」就在这里 ---------- */
-function patchDhyIndex(d) {
-  let n = 0;
-  n += setIf(d, "dhy_expire_desc", "在线会员有效至 " + FAR_DATE);
-  n += setIf(d, "special_user_type", 1);
-  return n;
-}
-
-/* ---------- 3. capi 升级配置 ---------- */
-function patchUpConfig(d) {
-  let n = 0;
-  n += setIf(d, "normal_member_days", FAR_DAYS);
-  // can_upgrade 保持原值：改成 true 反而会冒出「升级」按钮
-  return n;
-}
-
-/* ---------- 4. 活动 / 权益天数 ---------- */
-function patchSaleDetail(d) {
-  let n = 0;
-  n += setIf(d, "new_user_dhy_days", FAR_DAYS);
-  n += setIf(d, "course_right_days", FAR_DAYS);
-  n += setIf(d, "first_join_dhy_msg", "会员有效至 " + FAR_DATE);
-  n += setIf(d, "renew_join_dhy_msg", "会员有效至 " + FAR_DATE);
-  return n;
-}
-
-/* ---------- 5. AI 助手 hundun-agent 的独立会员体系 ---------- */
-function patchAgent(obj) {
-  let n = 0;
-  const m = isObj(obj) ? obj.membership : null;
-  if (isObj(m)) {
-    n += setIf(m, "isMember", true);
-    n += setIf(m, "canUseSkill", true);
-    n += setIf(m, "statusCode", "MEMBER");
-    n += setIf(m, "statusDesc", "会员有效至 " + FAR_DATE);
-    n += setIf(m, "memberCheckDesc", "会员有效");
-    n += setIf(m, "expiresAt", FAR_ISO);
-    n += setIf(m, "remainingDays", FAR_DAYS);
+function pickMapping(key) {
+  switch (key) {
+    case "user.hundun.cn/get_user_info":
+      return [USER_MAP, "用户信息"];
+    case "user.hundun.cn/dhy/index":
+      return [DHY_MAP, "会员购买页"];
+    case "capi.hundun.cn/dhy/get_up_config_info":
+      return [UPCONFIG_MAP, "升级配置"];
+    case "user.hundun.cn/activity/sale/detail":
+      return [SALE_MAP, "活动详情"];
+    case "course.hundun.cn/online/schedule/list":
+      return [SCHEDULE_MAP, "课程列表权限"];
+    default:
+      if (key.indexOf("tools.hundun.cn/h5Bin/hundun-agent/api/auth/") === 0) {
+        return [AGENT_MAP, "AI助手会员"];
+      }
+      return [FALLBACK_MAP, "通用兜底"];
   }
-  n += setIf(obj, "tier", "member");
-  return n;
 }
 
-function patchAgentMe(obj) {
-  let n = 0;
-  n += setIf(obj, "authenticated", true);
-  if (isObj(obj.user)) n += setIf(obj.user, "courseLearningReady", true);
-  return n;
-}
-
-/* ---------- 主流程 ---------- */
 function main() {
   const loc = parseUrl($request && $request.url);
-  const raw = $response.body;
+  const key = loc.host + loc.path;
+  const raw = $response && $response.body;
 
-  if (typeof raw !== "string") {
-    log("body 非字符串（" + typeof raw + "），跳过 " + loc.host + loc.path);
+  if (typeof raw !== "string" || raw.length === 0) {
+    log("跳过：body 为空或非字符串 " + key);
     $done({});
     return;
   }
-  // gzip magic：Loon 未解压就塞二进制进来，JSON.parse 必然失败
-  if (raw.charCodeAt(0) === 0x1f && raw.charCodeAt(1) === 0x8b) {
-    log("body 仍是 gzip 二进制，跳过 " + loc.host + loc.path);
+  const c0 = raw.charCodeAt(0);
+  if (c0 === 0x1f && raw.charCodeAt(1) === 0x8b) {
+    log("跳过：body 仍是 gzip 二进制 " + key);
+    $done({});
+    return;
+  }
+  if (c0 !== 0x7b && c0 !== 0x5b) {
+    log("跳过：非 JSON 内容（HTML/静态资源） " + key);
     $done({});
     return;
   }
@@ -168,45 +210,29 @@ function main() {
     return;
   }
 
-  const data = isObj(obj) ? obj.data : null;
-  const key = loc.host + loc.path;
-  let n = 0;
-
-  switch (key) {
-    case "user.hundun.cn/get_user_info":
-      n = patchUserInfo(data);
-      break;
-    case "user.hundun.cn/dhy/index":
-      n = patchDhyIndex(data);
-      break;
-    case "capi.hundun.cn/dhy/get_up_config_info":
-      n = patchUpConfig(data);
-      break;
-    case "user.hundun.cn/activity/sale/detail":
-      n = patchSaleDetail(data);
-      break;
-    case "tools.hundun.cn/h5Bin/hundun-agent/api/auth/membership/refresh":
-      n = patchAgent(obj);
-      break;
-    case "tools.hundun.cn/h5Bin/hundun-agent/api/auth/me":
-    case "tools.hundun.cn/h5Bin/hundun-agent/api/auth/app":
-      n = patchAgentMe(obj);
-      break;
-    default:
-      // index_config / schedule/list / reddot 等没有会员字段，保持原样
-      log("接口无需改写，保持原样 " + key);
-      $done({});
-      return;
-  }
-
-  if (n === 0) {
-    log("无匹配字段，保持原样 " + key);
+  const picked = pickMapping(key);
+  const stat = { n: 0, keys: [] };
+  try {
+    patchTree(obj, picked[0], stat, 0);
+  } catch (e) {
+    log("改写异常，原样放行: " + e + " / " + key);
     $done({});
     return;
   }
 
-  log("改写完成 " + key + "，共 " + n + " 个字段");
+  if (stat.n === 0) {
+    log("无需改写 [" + picked[1] + "] " + key);
+    $done({});
+    return;
+  }
+
+  log("改写完成 [" + picked[1] + "] " + key + " 共 " + stat.n + " 处 / " + stat.keys.join(","));
   $done({ body: JSON.stringify(obj), headers: cleanHeaders($response.headers) });
 }
 
-main();
+try {
+  main();
+} catch (e) {
+  log("主流程异常，原样放行: " + e);
+  $done({});
+}

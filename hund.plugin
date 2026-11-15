@@ -1,5 +1,5 @@
 #!name = 混沌大学 会员改写（全接口）
-#!desc = 覆盖 get_user_info / dhy 会员页 / capi 升级配置 / 活动详情 / AI 助手会员状态，并清理 gzip 与 Etag 响应头
+#!desc = 覆盖用户信息 / 会员页 / 课程列表权限 / capi 升级配置 / 活动详情 / AI 助手会员状态；清理 gzip 与 Etag 并禁止缓存
 #!author = Aether
 #!homepage = https://github.com/TuiYinMJ/myScript
 #!icon = https://github.com/TuiYinMJ/myScript/blob/master/res/hund.png?raw=true
@@ -7,13 +7,18 @@
 #!tag = 会员, 解锁
 
 [Rewrite]
-# user.hundun.cn 的 JSON 响应带 Etag，命中 304 时脚本拿不到 body
-request if ${url} ~= /^https:\/\/user\.hundun\.cn\//i then request.header.del("If-None-Match")
+# user / capi / course / tools 的 JSON 响应都带 Etag，命中 304 时 Response Script 拿不到 body，改写会静默失效
+request if ${url} ~= /^https:\/\/(?:user|capi|course|tools)\.hundun\.cn\//i then request.header.del("If-None-Match")
+request if ${url} ~= /^https:\/\/(?:user|capi|course|tools)\.hundun\.cn\//i then request.header.del("If-Modified-Since")
 
 [Script]
-# Loon 983+ 的 Response Script 是 first-match：一个请求只会执行一条，写多条只有第一条生效。
-# 因此这里只用一条规则，由 hund.js 按 host+path 精确分派；以后新增接口只改远程 JS，不用重新导入插件。
-response if ${url} ~= /^https:\/\/(?:user|capi|course|tools)\.hundun\.cn\/(?:get_user_info|dhy\/|activity\/|online\/|h5Bin\/hundun-agent\/api\/auth\/)/i then script("https://raw.githubusercontent.com/TuiYinMJ/myScript/refs/heads/master/js/hund.js") with tag="混沌会员全接口", timeout=20, requires_body=true, debug=true
+# Loon 983+ 的 Response Script 是 first-match：一个请求只会执行一条，所以只留一条规则，由 hund.js 按 host+path 分派。
+# 放宽到 user / capi / course 全域 + hundun-agent 的 api/auth 路径，确保点进课程播放页时新出现的接口也能被覆盖。
+# 发现新接口后只需 push 远程 JS，不必重新导入插件。
+#
+# 若 GitHub raw 拉取失败或远程 JS 缓存不刷新：把 js/hund.js 放进 Loon 的脚本目录，
+# 把下面的 URL 改成本地文件名 script("hund.js") 即可，这是最稳妥的用法。
+response if ${url} ~= /^https:\/\/(?:user|capi|course)\.hundun\.cn\/|^https:\/\/tools\.hundun\.cn\/h5Bin\/hundun-agent\/api\/auth\//i then script("https://raw.githubusercontent.com/TuiYinMJ/myScript/refs/heads/master/js/hund.js") with tag="混沌会员全接口", timeout=20, requires_body=true, debug=true
 
 [MITM]
 hostname = user.hundun.cn, capi.hundun.cn, course.hundun.cn, tools.hundun.cn
