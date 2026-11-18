@@ -9,10 +9,10 @@
 
 [Script]
 # 两条链路共用一个 JS，由脚本按 URL 分派。
-# URL 末尾 ?v=3 是缓存破坏参数：Loon 按 URL 缓存远程脚本，改完 JS 必须升版本号。
-# 若 raw 连通性差，可改用 pingo-local.plugin + 本地脚本。
-request if ${url} ~= /^https:\/\/(?:i\.pingo\.ai\/user\/entitlement|subscriptions-api\.superwall\.com\/subscriptions-api\/public\/v1\/users\/[^\/]+\/entitlements)/i then script("https://raw.githubusercontent.com/TuiYinMJ/myScript/refs/heads/master/js/pingo-request.js?v=3") with tag="Pingo请求", requires_body=false
-response if ${url} ~= /^https:\/\/(?:i\.pingo\.ai\/user\/entitlement|subscriptions-api\.superwall\.com\/subscriptions-api\/public\/v1\/users\/[^\/]+\/entitlements)/i then script("https://raw.githubusercontent.com/TuiYinMJ/myScript/refs/heads/master/js/pingo-vip.js?v=3") with tag="PingoPro", timeout=60, requires_body=true
+# URL 末尾 ?v=5 是缓存破坏参数：Loon 按 URL 缓存远程脚本，改完 JS 必须升版本号。
+# 脚本走 gh-proxy 镜像：raw.githubusercontent.com 在国内常连不上，插件订阅也会因此显示成哈希。
+request if ${url} ~= /^https:\/\/(?:i\.pingo\.ai\/user\/entitlement|subscriptions-api\.superwall\.com\/subscriptions-api\/public\/v1\/users\/[^\/]+\/entitlements)/i then script("https://gh-proxy.com/https://raw.githubusercontent.com/TuiYinMJ/myScript/master/js/pingo-request.js?v=5") with tag="Pingo请求", requires_body=false
+response if ${url} ~= /^https:\/\/(?:i\.pingo\.ai\/user\/entitlement|subscriptions-api\.superwall\.com\/subscriptions-api\/public\/v1\/users\/[^\/]+\/entitlements)/i then script("https://gh-proxy.com/https://raw.githubusercontent.com/TuiYinMJ/myScript/master/js/pingo-vip.js?v=5") with tag="PingoPro", timeout=60, requires_body=true
 
 [MITM]
 hostname = subscriptions-api.superwall.com, i.pingo.ai
