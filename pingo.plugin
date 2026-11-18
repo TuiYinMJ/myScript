@@ -1,0 +1,15 @@
+#!name = Pingo AI 解锁 Pro 会员
+#!desc = 解锁 Pingo（i.pingo.ai）Pro 会员身份：伪造 Superwall pro entitlement 激活状态与 entitlementsToken，使付费墙判定为已订阅；请求侧禁用协商缓存，避免 304 导致拿不到响应体
+#!author = TuiYinMJ
+#!homepage = https://github.com/TuiYinMJ/myScript
+#!icon = https://github.com/TuiYinMJ/myScript/blob/master/res/lingoDuo.png?raw=true
+#!tag = 解锁会员, Pingo
+#!openUrl = https://apps.apple.com/cn/app/id6738882620
+#!loon_version = 3.5.1(983)
+
+[Script]
+request if ${url} ~= /^https:\/\/subscriptions-api\.superwall\.com\/subscriptions-api\/public\/v1\/users\/[^\/]+\/entitlements/i then script("https://raw.githubusercontent.com/TuiYinMJ/myScript/refs/heads/master/js/pingo-request.js") with tag="Pingo请求", requires_body=false
+response if ${url} ~= /^https:\/\/subscriptions-api\.superwall\.com\/subscriptions-api\/public\/v1\/users\/[^\/]+\/entitlements/i then script("https://raw.githubusercontent.com/TuiYinMJ/myScript/refs/heads/master/js/pingo-vip.js") with tag="PingoPro", timeout=60, requires_body=true
+
+[MITM]
+hostname = subscriptions-api.superwall.com
