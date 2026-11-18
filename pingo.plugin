@@ -1,5 +1,5 @@
 #!name = Pingo AI 解锁 Pro 会员
-#!desc = 三层解锁 Pingo（i.pingo.ai）Pro：请求侧直返 /user/entitlement 的 isPro=true、Superwall entitlements 的 pro active，并把 static_config 的付费墙触发器全部置为不匹配；绕开 304/缓存
+#!desc = 解锁 Pingo（i.pingo.ai）Pro：/user/entitlement 置 isPro=true，Superwall entitlements 置 pro active，static_config 的付费墙触发器全部置为不匹配；单条脚本覆盖全部 Pingo API，响应带 X-Pingo-Patched 便于确认执行
 #!author = TuiYinMJ
 #!homepage = https://github.com/TuiYinMJ/myScript
 #!icon = https://github.com/TuiYinMJ/myScript/blob/master/res/lingoDuo.png?raw=true
@@ -7,12 +7,18 @@
 #!openUrl = https://apps.apple.com/cn/app/id6738882620
 #!loon_version = 3.5.1(983)
 
+[Rewrite]
+# Pingo API 与 Superwall 都带 ETag，客户端用 If-None-Match 换 304 时 Response Script
+# 拿不到 body，改写会静默失效。这里只对 API 路径删条件头，/static/ 图标不碰。
+request if ${url} ~= /^https:\/\/(?:i\.pingo\.ai\/(?!static\/)|subscriptions-api\.superwall\.com\/subscriptions-api\/public\/v1\/users\/[^\/]+\/entitlements|api\.superwall\.me\/api\/v1\/static_config)/i then request.header.del("If-None-Match") | request.header.del("If-Modified-Since")
+
 [Script]
-# 两条链路共用一个 JS，由脚本按 URL 分派。
-# URL 末尾 ?v=7 是缓存破坏参数：Loon 按 URL 缓存远程脚本，改完 JS 必须升版本号。
-# 脚本走 gh-proxy 镜像：raw.githubusercontent.com 在国内常连不上，插件订阅也会因此显示成哈希。
-request if ${url} ~= /^https:\/\/(?:i\.pingo\.ai\/user\/entitlement|subscriptions-api\.superwall\.com\/subscriptions-api\/public\/v1\/users\/[^\/]+\/entitlements|api\.superwall\.me\/api\/v1\/static_config)/i then script("https://gh-proxy.com/https://raw.githubusercontent.com/TuiYinMJ/myScript/master/js/pingo-request.js?v=7") with tag="Pingo直返", requires_body=false
-response if ${url} ~= /^https:\/\/(?:i\.pingo\.ai\/user\/entitlement|subscriptions-api\.superwall\.com\/subscriptions-api\/public\/v1\/users\/[^\/]+\/entitlements|api\.superwall\.me\/api\/v1\/static_config)/i then script("https://gh-proxy.com/https://raw.githubusercontent.com/TuiYinMJ/myScript/master/js/pingo-vip.js?v=7") with tag="PingoPro", timeout=60, requires_body=true
+# 单条 Response Script 按 host+path 分派：
+#   i.pingo.ai 全部 API -> 通用会员字段兜底 + /user/entitlement 精确改写
+#   subscriptions-api -> customerInfo.entitlements[pro].isActive=true
+#   static_config -> 122 条付费墙触发器全部改成不匹配
+# ?v=8 为缓存破坏参数，改 JS 后必须升版本号并重载 Loon。
+response if ${url} ~= /^https:\/\/(?:i\.pingo\.ai\/(?!static\/)|subscriptions-api\.superwall\.com\/subscriptions-api\/public\/v1\/users\/[^\/]+\/entitlements|api\.superwall\.me\/api\/v1\/static_config)/i then script("https://gh-proxy.com/https://raw.githubusercontent.com/TuiYinMJ/myScript/master/js/pingo-vip.js?v=8") with tag="PingoPro", timeout=120, requires_body=true
 
 [MITM]
-hostname = subscriptions-api.superwall.com, i.pingo.ai, api.superwall.me
+hostname = i.pingo.ai, subscriptions-api.superwall.com, api.superwall.me

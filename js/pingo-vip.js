@@ -1,39 +1,33 @@
 /*
- * Pingo AI (i.pingo.ai) 解锁 Pro 会员
+ * Pingo AI (i.pingo.ai) 解锁 Pro 会员 —— 单条 Response Script
  *
- * 一共两条判定链，必须同时处理：
+ * 写法对齐 hund / duolingo（已验证可用）：
+ *   1) [Rewrite] 删 If-None-Match / If-Modified-Since，避免 304 拿不到 body
+ *   2) 单条 Response Script，按 host+path 分派，覆盖全部 i.pingo.ai API
+ *   3) 未知接口用高置信度字段兜底（isPro / is_pro / isVip ...）
+ *   4) 响应加 X-Pingo-Patched: 1，抓包或日志一眼确认脚本是否执行
  *
- * A. Pingo 自有接口（UI 的 isPro 来源）
- *    GET https://i.pingo.ai/user/entitlement
- *    真实响应：{"isPro":false,"freeRemaining":{"conversations":0,"vocabPractice":1}}
- *    -> isPro 决定 App 内是否显示会员/免费额度
- *    -> 该接口带 ETag，客户端会发 If-None-Match 拿到 304，必须在请求侧
- *       删掉条件头（见 pingo-request.js），否则响应脚本拿不到 body
+ * 三条链路：
+ *   A. i.pingo.ai/user/entitlement
+ *      真实响应：{"isPro":false,"freeRemaining":{"conversations":0,"vocabPractice":1}}
+ *      -> isPro=true，freeRemaining 数值拉满
  *
- * B. Superwall 权益接口（付费墙触发器来源）
- *    GET https://subscriptions-api.superwall.com/.../users/{id}/entitlements
- *    付费墙规则全部是 size(device.activeEntitlements) == 0 才展示，
- *    所以要把 customerInfo.entitlements[].isActive 置为 true。
+ *   B. subscriptions-api.superwall.com/.../users/{id}/entitlements
+ *      Superwall SDK 4.16 源码：EntitlementsResponse 只解码 customerInfo；
+ *      subscriptionsApi 解码器日期用毫秒时间戳、ProductStore 是 Int(1=stripe)；
+ *      customerInfo.subscriptions 元素字段全部必填，所以保持空数组最安全。
+ *      -> customerInfo.entitlements[pro].isActive=true
  *
- *    依据 Superwall iOS SDK 4.16 源码：
- *    - EntitlementsResponse 只解码 customerInfo，顶层 entitlements 和
- *      entitlementsToken 不参与判定
- *    - subscriptionsApi 解码器：date 只接受毫秒时间戳或
- *      "yyyy-MM-dd'T'HH:mm:ss.SSSXXXXX"；ProductStore 是 Int 枚举
- *      (0=appStore 1=stripe ...)
- *    - customerInfo.subscriptions 元素 SubscriptionTransaction 的
- *      transactionId/productId/purchaseDate/willRenew/isRevoked/
- *      isInGracePeriod/isInBillingRetryPeriod/isActive/store 全部必填，
- *      缺一个就会让整个 customerInfo 解码失败、响应被丢弃
- *
- *    因此绝对不动 subscriptions / nonSubscriptions，只改 entitlements。
+ *   C. api.superwall.me/api/v1/static_config
+ *      付费墙触发器规则全部是 size(device.activeEntitlements)==0；
+ *      把 122 条 rule 的 expression / expression_cel 全改成 "false"，
+ *      从源头让任何 placement 都不再弹付费墙。
  */
 
 var TAG = "[PingoPro]";
-
-var ONE_HUNDRED_YEARS_MS = 4102444800000; // 2100-01-01T00:00:00Z
-var STORE_STRIPE = 1;                     // ProductStore.stripe
 var BIG = 999999;
+var EXPIRE_MS = 4102444800000; // 2100-01-01
+var STORE_STRIPE = 1;
 
 function finish(body) {
     var raw = $response.headers || {};
@@ -44,9 +38,9 @@ function finish(body) {
         if (lk === "content-length" || lk === "content-encoding") continue;
         headers[k] = raw[k];
     }
-    var text = JSON.stringify(body);
-    if (Object.keys(headers).length) $done({ body: text, headers: headers });
-    else $done({ body: text });
+    headers["Cache-Control"] = "no-store";
+    headers["X-Pingo-Patched"] = "1";
+    $done({ body: JSON.stringify(body), headers: headers });
 }
 
 function buildPro(source) {
@@ -59,26 +53,40 @@ function buildPro(source) {
         latestProductId: pids.length ? pids[0] : "com.picoai.subscription.yearly",
         store: STORE_STRIPE,
         startsAt: Date.now(),
-        expiresAt: ONE_HUNDRED_YEARS_MS,
+        expiresAt: EXPIRE_MS,
         isLifetime: false,
         willRenew: true,
         state: "subscribed"
     };
 }
 
-function rewritePingoEntitlement(body) {
-    body.isPro = true;
-    if (!body.freeRemaining || typeof body.freeRemaining !== "object") {
-        body.freeRemaining = {};
+// 未知接口兜底：递归把所有会员标记改成 true，把所有 freeRemaining 数值拉满
+function deepPro(obj) {
+    if (!obj || typeof obj !== "object") return;
+    if (Array.isArray(obj)) {
+        for (var i = 0; i < obj.length; i++) deepPro(obj[i]);
+        return;
     }
-    body.freeRemaining.conversations = BIG;
-    body.freeRemaining.vocabPractice = BIG;
-    return body;
+    for (var k in obj) {
+        if (!Object.prototype.hasOwnProperty.call(obj, k)) continue;
+        var v = obj[k];
+        if (/^is_?(pro|vip|premium|subscribed|member)$/i.test(k)) {
+            obj[k] = true;
+        } else if (/^free_?remaining$/i.test(k) && v && typeof v === "object") {
+            for (var fk in v) {
+                if (Object.prototype.hasOwnProperty.call(v, fk) && typeof v[fk] === "number") {
+                    v[fk] = BIG;
+                }
+            }
+        } else if (v && typeof v === "object") {
+            deepPro(v);
+        }
+    }
 }
 
 function rewriteSuperwall(body) {
     var ci = body.customerInfo;
-    if (!ci || !Array.isArray(ci.entitlements)) return null;
+    if (!ci || !Array.isArray(ci.entitlements)) return false;
 
     var found = false;
     var next = [];
@@ -94,40 +102,56 @@ function rewriteSuperwall(body) {
     if (!found) next.push(buildPro(null));
     ci.entitlements = next;
 
-    // SDK 不解析顶层字段，保持语义一致即可
+    // SDK 不解析顶层字段，补上保持语义一致
     body.entitlements = [{ identifier: "pro", type: "SERVICE_LEVEL" }];
-    return body;
+    return true;
+}
+
+function disablePaywallTriggers(body) {
+    if (!Array.isArray(body.trigger_options)) return 0;
+    var n = 0;
+    for (var ti = 0; ti < body.trigger_options.length; ti++) {
+        var tr = body.trigger_options[ti];
+        if (!tr || !Array.isArray(tr.rules)) continue;
+        for (var ri = 0; ri < tr.rules.length; ri++) {
+            var rule = tr.rules[ri];
+            if (!rule) continue;
+            rule.expression = "false";
+            rule.expression_cel = "false";
+            n++;
+        }
+    }
+    return n;
 }
 
 try {
+    var url = ($request && $request.url) ? $request.url : "";
     var body = JSON.parse($response.body);
-    var url = $request && $request.url ? $request.url : "";
 
     if (/api\.superwall\.me\/api\/v1\/static_config/i.test(url)) {
-        // 兜底：所有 placement 的规则表达式置为 false，任何付费墙触发器都不匹配
-        if (Array.isArray(body.trigger_options)) {
-            for (var ti = 0; ti < body.trigger_options.length; ti++) {
-                var tr = body.trigger_options[ti];
-                if (!tr || !Array.isArray(tr.rules)) continue;
-                for (var ri = 0; ri < tr.rules.length; ri++) {
-                    var rule = tr.rules[ri];
-                    if (!rule) continue;
-                    rule.expression = "false";
-                    rule.expression_cel = "false";
-                }
-            }
-        }
-        console.log(TAG + " static_config triggers -> false");
+        var count = disablePaywallTriggers(body);
+        console.log(TAG + " static_config triggers -> false, rules=" + count);
         finish(body);
-    } else if (/i\.pingo\.ai\/user\/entitlement/i.test(url)) {
-        body = rewritePingoEntitlement(body);
-        console.log(TAG + " /user/entitlement isPro -> true");
-    } else {
-        body = rewriteSuperwall(body) || body;
+    } else if (/subscriptions-api\.superwall\.com\/subscriptions-api\/public\/v1\/users\/[^\/]+\/entitlements/i.test(url)) {
+        rewriteSuperwall(body);
         console.log(TAG + " superwall pro -> active");
+        finish(body);
+    } else {
+        // i.pingo.ai 全部 API：先做通用兜底，再针对 entitlement 精确补齐
+        deepPro(body);
+        if (/\/user\/entitlement/i.test(url)) {
+            body.isPro = true;
+            if (!body.freeRemaining || typeof body.freeRemaining !== "object") {
+                body.freeRemaining = {};
+            }
+            body.freeRemaining.conversations = BIG;
+            body.freeRemaining.vocabPractice = BIG;
+            console.log(TAG + " /user/entitlement isPro -> true");
+        } else {
+            console.log(TAG + " " + url.split("?")[0] + " 通用会员字段兜底");
+        }
+        finish(body);
     }
-
-    finish(body);
 } catch (err) {
     console.log(TAG + " 解析失败，原样返回: " + err);
     $done({});
