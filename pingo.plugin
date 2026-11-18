@@ -1,5 +1,5 @@
 #!name = Pingo AI 解锁 Pro 会员
-#!desc = 双链路解锁 Pingo（i.pingo.ai）Pro：改写自有接口 /user/entitlement 的 isPro 与免费额度，同时把 Superwall entitlements 的 pro 置为 active（跳过 size(activeEntitlements)==0 的付费墙）；请求侧删协商缓存头避免 304
+#!desc = 双链路解锁 Pingo（i.pingo.ai）Pro：请求侧直接返回伪造响应，/user/entitlement 返回 isPro=true，Superwall entitlements 返回 pro active（跳过所有 activeEntitlements==0 的付费墙）；不发真实请求，绕开 304 与缓存
 #!author = TuiYinMJ
 #!homepage = https://github.com/TuiYinMJ/myScript
 #!icon = https://github.com/TuiYinMJ/myScript/blob/master/res/lingoDuo.png?raw=true
@@ -9,10 +9,10 @@
 
 [Script]
 # 两条链路共用一个 JS，由脚本按 URL 分派。
-# URL 末尾 ?v=5 是缓存破坏参数：Loon 按 URL 缓存远程脚本，改完 JS 必须升版本号。
+# URL 末尾 ?v=6 是缓存破坏参数：Loon 按 URL 缓存远程脚本，改完 JS 必须升版本号。
 # 脚本走 gh-proxy 镜像：raw.githubusercontent.com 在国内常连不上，插件订阅也会因此显示成哈希。
-request if ${url} ~= /^https:\/\/(?:i\.pingo\.ai\/user\/entitlement|subscriptions-api\.superwall\.com\/subscriptions-api\/public\/v1\/users\/[^\/]+\/entitlements)/i then script("https://gh-proxy.com/https://raw.githubusercontent.com/TuiYinMJ/myScript/master/js/pingo-request.js?v=5") with tag="Pingo请求", requires_body=false
-response if ${url} ~= /^https:\/\/(?:i\.pingo\.ai\/user\/entitlement|subscriptions-api\.superwall\.com\/subscriptions-api\/public\/v1\/users\/[^\/]+\/entitlements)/i then script("https://gh-proxy.com/https://raw.githubusercontent.com/TuiYinMJ/myScript/master/js/pingo-vip.js?v=5") with tag="PingoPro", timeout=60, requires_body=true
+request if ${url} ~= /^https:\/\/(?:i\.pingo\.ai\/user\/entitlement|subscriptions-api\.superwall\.com\/subscriptions-api\/public\/v1\/users\/[^\/]+\/entitlements)/i then script("https://gh-proxy.com/https://raw.githubusercontent.com/TuiYinMJ/myScript/master/js/pingo-request.js?v=6") with tag="Pingo直返", requires_body=false
+response if ${url} ~= /^https:\/\/(?:i\.pingo\.ai\/user\/entitlement|subscriptions-api\.superwall\.com\/subscriptions-api\/public\/v1\/users\/[^\/]+\/entitlements)/i then script("https://gh-proxy.com/https://raw.githubusercontent.com/TuiYinMJ/myScript/master/js/pingo-vip.js?v=6") with tag="PingoPro", timeout=60, requires_body=true
 
 [MITM]
 hostname = subscriptions-api.superwall.com, i.pingo.ai
