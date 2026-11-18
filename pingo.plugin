@@ -2,7 +2,7 @@
 #!desc = 三层解锁 Pingo（i.pingo.ai）Pro：请求侧直返 /user/entitlement 的 isPro=true、Superwall entitlements 的 pro active，并把 static_config 的付费墙触发器全部置为不匹配；绕开 304/缓存
 #!author = TuiYinMJ
 #!homepage = https://github.com/TuiYinMJ/myScript
-#!icon = https://github.com/TuiYinMJ/myScript/blob/master/res/lingoDuo.png?raw=true
+#!icon = https://is1-ssl.mzstatic.com/image/thumb/Purple211/v4/4a/8f/26/4a8f26ff-47d8-d1eb-98c9-7001084d0693/AppIcon-0-0-1x_U007epad-0-1-85-220.png/512x512bb.jpg
 #!tag = 解锁会员, Pingo
 #!openUrl = https://apps.apple.com/cn/app/id6738882620
 #!loon_version = 3.5.1(983)
