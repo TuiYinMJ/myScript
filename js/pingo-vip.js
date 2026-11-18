@@ -103,7 +103,23 @@ try {
     var body = JSON.parse($response.body);
     var url = $request && $request.url ? $request.url : "";
 
-    if (/i\.pingo\.ai\/user\/entitlement/i.test(url)) {
+    if (/api\.superwall\.me\/api\/v1\/static_config/i.test(url)) {
+        // 兜底：所有 placement 的规则表达式置为 false，任何付费墙触发器都不匹配
+        if (Array.isArray(body.trigger_options)) {
+            for (var ti = 0; ti < body.trigger_options.length; ti++) {
+                var tr = body.trigger_options[ti];
+                if (!tr || !Array.isArray(tr.rules)) continue;
+                for (var ri = 0; ri < tr.rules.length; ri++) {
+                    var rule = tr.rules[ri];
+                    if (!rule) continue;
+                    rule.expression = "false";
+                    rule.expression_cel = "false";
+                }
+            }
+        }
+        console.log(TAG + " static_config triggers -> false");
+        finish(body);
+    } else if (/i\.pingo\.ai\/user\/entitlement/i.test(url)) {
         body = rewritePingoEntitlement(body);
         console.log(TAG + " /user/entitlement isPro -> true");
     } else {

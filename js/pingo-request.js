@@ -59,6 +59,15 @@ if (/i\.pingo\.ai\/user\/entitlement/i.test(url)) {
             isPlaceholder: false
         }
     });
+} else if (/api\.superwall\.me\/api\/v1\/static_config/i.test(url)) {
+    // static_config 不能直返（体积大且含产品/付费墙定义），只删条件头让服务器回 200，
+    // 再由 pingo-vip.js 把 trigger 规则改成不匹配
+    var headers = ($request && $request.headers) ? $request.headers : {};
+    delete headers["If-None-Match"];
+    delete headers["If-Modified-Since"];
+    headers["Cache-Control"] = "no-cache";
+    console.log("[PingoPro] static_config 去缓存");
+    $done({ headers: headers });
 } else {
     $done({});
 }
