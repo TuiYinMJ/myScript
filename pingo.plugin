@@ -1,5 +1,5 @@
 #!name = Pingo AI 解锁 Pro 会员
-#!desc = 解锁 Pingo（i.pingo.ai）Pro 会员身份：伪造 Superwall pro entitlement 激活状态与 entitlementsToken，使付费墙判定为已订阅；请求侧禁用协商缓存，避免 304 导致拿不到响应体
+#!desc = 双链路解锁 Pingo（i.pingo.ai）Pro：改写自有接口 /user/entitlement 的 isPro 与免费额度，同时把 Superwall entitlements 的 pro 置为 active（跳过 size(activeEntitlements)==0 的付费墙）；请求侧删协商缓存头避免 304
 #!author = TuiYinMJ
 #!homepage = https://github.com/TuiYinMJ/myScript
 #!icon = https://github.com/TuiYinMJ/myScript/blob/master/res/lingoDuo.png?raw=true
@@ -8,8 +8,11 @@
 #!loon_version = 3.5.1(983)
 
 [Script]
-request if ${url} ~= /^https:\/\/subscriptions-api\.superwall\.com\/subscriptions-api\/public\/v1\/users\/[^\/]+\/entitlements/i then script("https://raw.githubusercontent.com/TuiYinMJ/myScript/refs/heads/master/js/pingo-request.js") with tag="Pingo请求", requires_body=false
-response if ${url} ~= /^https:\/\/subscriptions-api\.superwall\.com\/subscriptions-api\/public\/v1\/users\/[^\/]+\/entitlements/i then script("https://raw.githubusercontent.com/TuiYinMJ/myScript/refs/heads/master/js/pingo-vip.js") with tag="PingoPro", timeout=60, requires_body=true
+# 两条链路共用一个 JS，由脚本按 URL 分派。
+# URL 末尾 ?v=3 是缓存破坏参数：Loon 按 URL 缓存远程脚本，改完 JS 必须升版本号。
+# 若 raw 连通性差，可改用 pingo-local.plugin + 本地脚本。
+request if ${url} ~= /^https:\/\/(?:i\.pingo\.ai\/user\/entitlement|subscriptions-api\.superwall\.com\/subscriptions-api\/public\/v1\/users\/[^\/]+\/entitlements)/i then script("https://raw.githubusercontent.com/TuiYinMJ/myScript/refs/heads/master/js/pingo-request.js?v=3") with tag="Pingo请求", requires_body=false
+response if ${url} ~= /^https:\/\/(?:i\.pingo\.ai\/user\/entitlement|subscriptions-api\.superwall\.com\/subscriptions-api\/public\/v1\/users\/[^\/]+\/entitlements)/i then script("https://raw.githubusercontent.com/TuiYinMJ/myScript/refs/heads/master/js/pingo-vip.js?v=3") with tag="PingoPro", timeout=60, requires_body=true
 
 [MITM]
-hostname = subscriptions-api.superwall.com
+hostname = subscriptions-api.superwall.com, i.pingo.ai

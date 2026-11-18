@@ -1,0 +1,15 @@
+#!name = Pingo AI 解锁 Pro 会员（本地脚本）
+#!desc = 与 pingo.plugin 逻辑相同，引用 Loon 脚本目录下的本地 js，不依赖 GitHub raw。使用前先把 js/pingo-request.js、js/pingo-vip.js 导入 Loon 脚本目录
+#!author = TuiYinMJ
+#!homepage = https://github.com/TuiYinMJ/myScript
+#!icon = https://github.com/TuiYinMJ/myScript/blob/master/res/lingoDuo.png?raw=true
+#!tag = 解锁会员, Pingo
+#!openUrl = https://apps.apple.com/cn/app/id6738882620
+#!loon_version = 3.5.1(983)
+
+[Script]
+request if ${url} ~= /^https:\/\/(?:i\.pingo\.ai\/user\/entitlement|subscriptions-api\.superwall\.com\/subscriptions-api\/public\/v1\/users\/[^\/]+\/entitlements)/i then script("pingo-request.js") with tag="Pingo请求", requires_body=false
+response if ${url} ~= /^https:\/\/(?:i\.pingo\.ai\/user\/entitlement|subscriptions-api\.superwall\.com\/subscriptions-api\/public\/v1\/users\/[^\/]+\/entitlements)/i then script("pingo-vip.js") with tag="PingoPro", timeout=60, requires_body=true
+
+[MITM]
+hostname = subscriptions-api.superwall.com, i.pingo.ai
