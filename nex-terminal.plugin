@@ -1,0 +1,17 @@
+#!name = Nex Terminal 会员解锁
+#!desc = 解锁 Nex Terminal Pro：请求侧把 /updateUser 上报的 isPaid 由 0 改为 1，并补全 purchaseDate/productId，使服务端将该设备记为已付费；不改本地收据，纯改网络上报
+#!author = TuiYinMJ
+#!homepage = https://github.com/TuiYinMJ/myScript
+#!icon = https://is1-ssl.mzstatic.com/image/thumb/Purple221/v4/fd/3e/5b/fd3e5b63-cddb-4492-76dd-0456dc0aecf1/AppIcon-0-0-1x_U007epad-0-1-0-85-220.png/512x512bb.jpg
+#!tag = 解锁会员, SSH
+#!openUrl = https://apps.apple.com/app/nex-terminal-ssh-sftp-client/id6738882620
+#!loon_version = 3.5.1(983)
+
+[Script]
+# 唯一的付费相关接口是 POST nex.icons6.top/updateUser（multipart/form-data）。
+# 只改请求体里的 isPaid/purchaseDate/productId，保留 boundary 与其余字段原样。
+# ?v=1 为缓存破坏参数，改 JS 后升版本号并重载 Loon。
+request if ${url} ~= /^https:\/\/nex\.icons6\.top\/updateUser/i then script("https://gh-proxy.com/https://raw.githubusercontent.com/TuiYinMJ/myScript/master/js/nex-terminal.js?v=1") with tag="NexTerminal会员", requires_body=true, timeout=30
+
+[MITM]
+hostname = nex.icons6.top
